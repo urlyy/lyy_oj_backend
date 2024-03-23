@@ -11,19 +11,16 @@ import (
 )
 
 func addDiscussion(c *gin.Context) {
-	domainID, err := getDomainID(c)
-	if err != nil {
-		NewResult(c).Fail("域参数错误")
-		return
-	}
 	userID, _ := c.Get("userID")
+	domainID, err1 := getQueryDomainID(c)
 	type ReqData struct {
 		Title        string `json:"title"  binding:"required"`
 		DiscussionID int    `json:"discussionID"`
 		Content      string `json:"content"  binding:"required"`
 	}
 	reqData := ReqData{}
-	if err := c.ShouldBindJSON(&reqData); err != nil {
+	err2 := c.ShouldBindJSON(&reqData)
+	if err1 != nil || err2 != nil {
 		NewResult(c).Fail("参数错误")
 		return
 	}
@@ -48,13 +45,10 @@ func addDiscussion(c *gin.Context) {
 }
 
 func getDiscussions(c *gin.Context) {
-	domainID, err := getDomainID(c)
-	if err != nil {
-		NewResult(c).Fail("参数错误")
-	}
+	domainID, err1 := getQueryDomainID(c)
 	pageNumStr := c.DefaultQuery("page", "1")
-	pageNum, err := strconv.Atoi(pageNumStr)
-	if err != nil {
+	pageNum, err2 := strconv.Atoi(pageNumStr)
+	if err1 != nil || err2 != nil {
 		NewResult(c).Fail("参数错误")
 		return
 	}
@@ -77,7 +71,6 @@ func getDiscussions(c *gin.Context) {
 			"commentNum": discussion.CommentNum,
 		}
 		var user model.User
-		fmt.Println(discussion.CreatorID)
 		err := util.GetDB().Get(&user, `SELECT * FROM "user" WHERE id=$1`, discussion.CreatorID)
 		if err != nil {
 			fmt.Println(err)
@@ -110,7 +103,6 @@ func getDiscussionByID(c *gin.Context) {
 		NewResult(c).Fail("服务端异常")
 		return
 	}
-	// TODO 拿到评论列表
 	NewResult(c).Success("", map[string]interface{}{
 		"discussion": map[string]interface{}{
 			"id":              discussion.ID,
@@ -286,6 +278,18 @@ func getDiscussionReplies(c *gin.Context) {
 	})
 }
 
+func removeDiscussion(c *gin.Context) {
+	contestID := c.Param("id")
+	util.GetDB().Exec("UPDATE discussion SET is_deleted=true WHERE id=$1", contestID)
+	NewResult(c).Success("", nil)
+}
+
+func removeDiscussionComment(c *gin.Context) {
+	commentID := c.Param("id")
+	util.GetDB().Exec("UPDATE discussion_comment SET is_deleted=true WHERE id=$1", commentID)
+	NewResult(c).Success("", nil)
+}
+
 func addDiscussionRoute(r *gin.Engine) {
 	api := r.Group("/discussion")
 	api.GET("/:id", getDiscussionByID)
@@ -294,4 +298,6 @@ func addDiscussionRoute(r *gin.Engine) {
 	api.GET("/:id/comment", getDiscussionComments)
 	api.GET("/:id/comment/:floorID/reply", getDiscussionReplies)
 	api.POST("/:id/comment", addDiscussionComment)
+	api.DELETE("/:id", removeDiscussion)
+	api.DELETE("/comment/:id", removeDiscussionComment)
 }

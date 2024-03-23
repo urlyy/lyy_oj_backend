@@ -31,7 +31,7 @@ const (
 
 func init() {
 	r = gin.Default()
-	r.Use(configCors(), jwtAuthMiddleware())
+	addMiddleware(r)
 	addUserRoute(r)
 	addDomainRoute(r)
 	addProblemRoute(r)

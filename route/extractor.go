@@ -7,13 +7,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func getDomainID(c *gin.Context) (int, error) {
+func getQueryDomainID(c *gin.Context) (int, error) {
 	domainIDStr := c.Query("d")
 	domainID, err := strconv.Atoi(domainIDStr)
 	if err != nil {
 		return 0, err
 	} else {
 		return domainID, nil
+	}
+}
+
+func getPathInt(c *gin.Context, name string) (int, error) {
+	str := c.Param(name)
+	val, err := strconv.Atoi(str)
+	if err != nil {
+		return 0, err
+	} else {
+		return val, nil
 	}
 }
 

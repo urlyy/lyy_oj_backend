@@ -8,28 +8,26 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
-func addContest(c *gin.Context) {
-	domainID, err := getDomainID(c)
-	if err != nil {
-		NewResult(c).Fail("域参数错误")
-		return
-	}
+func upsertContest(c *gin.Context) {
+	domainID, err1 := getQueryDomainID(c)
 	userID, _ := c.Get("userID")
 	type ReqData struct {
-		Title        string `json:"title"  binding:"required"`
-		Typee        string `json:"type" binding:"required"`
-		Participants []int  `json:"participants" binding:"required"`
-		ContestID    int    `json:"contestID"`
-		Desc         string `json:"desc"  binding:"required"`
-		Public       *bool  `json:"pub"  binding:"required"`
-		StartTime    string `json:"start"   binding:"required"`
-		EndTime      string `json:"end"   binding:"required"`
+		Title      string `json:"title"  binding:"required"`
+		Typee      string `json:"type" binding:"required"`
+		ContestID  int    `json:"contestID"`
+		Desc       string `json:"desc"  binding:"required"`
+		Public     *bool  `json:"pub"  binding:"required"`
+		StartTime  string `json:"start"   binding:"required"`
+		EndTime    string `json:"end"   binding:"required"`
+		ProblemIDs []int  `json:"problemIDs" binding:"required"`
 	}
 	reqData := ReqData{}
-	if err := c.ShouldBindJSON(&reqData); err != nil {
-		fmt.Println(err)
+	err2 := c.ShouldBindJSON(&reqData)
+	if err1 != nil || err2 != nil {
+		fmt.Println(err1, err2)
 		NewResult(c).Fail("参数错误")
 		return
 	}
@@ -42,35 +40,32 @@ func addContest(c *gin.Context) {
 	if reqData.ContestID == 0 {
 		util.GetDB().MustExec(`
 		INSERT INTO contest(
-			title,description,public,type,participant_num,
+			title,description,public,type,
 			creator_id,domain_id,start_time,
-			end_time,create_time,update_time,is_deleted
-		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,false)`,
+			end_time,create_time,update_time,is_deleted,problem_ids
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,false,$11)`,
 			reqData.Title, reqData.Desc, reqData.Public, reqData.Typee,
-			len(reqData.Participants), userID, domainID, start, end, time.Now(), time.Now(),
+			userID, domainID, start, end, time.Now(), time.Now(), pq.Array(reqData.ProblemIDs),
 		)
 	} else {
 		util.GetDB().MustExec(`
-		UPDATE homework
-		SET title=$1,description=$2,public=$3,type=$4,participant_num=$5,
-			start_time=$6,end_time=$7,update_time=$8
+		UPDATE contest
+		SET title=$1,description=$2,public=$3,type=$4,
+			start_time=$5,end_time=$6,update_time=$7,problem_ids=$8
 		WHERE id=$9
 		`,
 			reqData.Title, reqData.Desc, reqData.Public, reqData.Typee,
-			len(reqData.Participants), start, end, time.Now(), reqData.ContestID,
+			start, end, time.Now(), pq.Array(reqData.ProblemIDs), reqData.ContestID,
 		)
 	}
 	NewResult(c).Success("", nil)
 }
 
 func getContests(c *gin.Context) {
-	domainID, err := getDomainID(c)
-	if err != nil {
-		NewResult(c).Fail("参数错误")
-	}
+	domainID, err1 := getQueryDomainID(c)
 	pageNumStr := c.DefaultQuery("page", "1")
-	pageNum, err := strconv.Atoi(pageNumStr)
-	if err != nil {
+	pageNum, err2 := strconv.Atoi(pageNumStr)
+	if err1 != nil || err2 != nil {
 		NewResult(c).Fail("参数错误")
 		return
 	}
@@ -79,7 +74,7 @@ func getContests(c *gin.Context) {
 	}
 	var contests []model.Contest
 	util.GetDB().Select(&contests, `
-		SELECT id,title,start_time,end_time,type,participant_num
+		SELECT *
 		FROM contest 
 		WHERE domain_id=$1 AND is_deleted = false 
 		LIMIT $2 OFFSET $3`,
@@ -87,12 +82,11 @@ func getContests(c *gin.Context) {
 	ret_contests := make([]map[string]interface{}, len(contests))
 	for i, contest := range contests {
 		ret_contests[i] = map[string]interface{}{
-			"id":             contest.ID,
-			"title":          contest.Title,
-			"startTime":      contest.StartTime,
-			"endTime":        contest.EndTime,
-			"type":           contest.Typee,
-			"participantNum": contest.ParticipantNum,
+			"id":        contest.ID,
+			"title":     contest.Title,
+			"startTime": contest.StartTime,
+			"endTime":   contest.EndTime,
+			"type":      contest.Typee,
 		}
 	}
 	NewResult(c).Success("", map[string]interface{}{"contests": ret_contests})
@@ -110,26 +104,53 @@ func getContestByID(c *gin.Context) {
 	var contest model.Contest
 	err := util.GetDB().Get(&contest, "SELECT * FROM contest WHERE id = $1", params.ContestID)
 	if err != nil {
-		NewResult(c).Fail("不存在该作业")
+		NewResult(c).Fail("不存在该测验")
 	} else {
-		// TODO 拿到作业里的问题列表
+		pids := []int64(contest.ProblemIDs)
 		NewResult(c).Success("", map[string]interface{}{
 			"contest": map[string]interface{}{
-				"id":        contest.ID,
-				"title":     contest.Title,
-				"desc":      contest.Desc,
-				"creatorID": contest.CreatorID,
-				"startTime": contest.StartTime,
-				"endTime":   contest.EndTime,
-				"type":      contest.Typee,
+				"id":         contest.ID,
+				"title":      contest.Title,
+				"desc":       contest.Desc,
+				"creatorID":  contest.CreatorID,
+				"startTime":  contest.StartTime,
+				"endTime":    contest.EndTime,
+				"type":       contest.Typee,
+				"problemIDs": pids,
 			},
 		})
 	}
+}
+
+func addProblemProblems(c *gin.Context) {
+	contestID, _ := getPathInt(c, "id")
+	type ReqData struct {
+		ProblemIDs []int `json:"problemIDs" binding:"required"`
+	}
+	reqData := ReqData{}
+	err := c.ShouldBindJSON(&reqData)
+	if err != nil {
+		NewResult(c).Fail("参数错误")
+		return
+	}
+	util.GetDB().MustExec(`
+		UPDATE contest SET problem_ids=$1
+		WHERE id=$2
+	`, reqData.ProblemIDs, contestID)
+	NewResult(c).Success("", nil)
+}
+
+func removeContest(c *gin.Context) {
+	contestID := c.Param("id")
+	util.GetDB().Exec("UPDATE contest SET is_deleted=true WHERE id=$1", contestID)
+	NewResult(c).Success("", nil)
 }
 
 func addContestRoute(r *gin.Engine) {
 	api := r.Group("/contest")
 	api.GET("/:id", getContestByID)
 	api.GET("/list", getContests)
-	api.POST("", addContest)
+	api.POST("", upsertContest)
+	api.POST("/:id/problem", addProblemProblems)
+	api.DELETE("/:id", removeContest)
 }

@@ -2,6 +2,8 @@ package model
 
 import (
 	"time"
+
+	"github.com/lib/pq"
 )
 
 type User struct {
@@ -16,6 +18,7 @@ type User struct {
 	Gender       int       `db:"gender"`
 	IsDeleted    bool      `db:"is_deleted"`
 	LastLogin    time.Time `db:"last_login"`
+	Website      string    `db:"website"`
 }
 
 type Domain struct {
@@ -30,6 +33,7 @@ type Problem struct {
 	ID          int       `db:"id"`
 	Title       string    `db:"title"`
 	Desc        string    `db:"description"`
+	JudgeType   int       `db:"judge_type"`
 	CreatorID   int       `db:"creator_id"`
 	DomainID    int       `db:"domain_id"`
 	InFmt       string    `db:"in_fmt"`
@@ -45,33 +49,34 @@ type Problem struct {
 }
 
 type Homework struct {
-	ID         int       `db:"id"`
-	Title      string    `db:"title"`
-	Desc       string    `db:"description"`
-	CreatorID  int       `db:"creator_id"`
-	DomainID   int       `db:"domain_id"`
-	StartTime  time.Time `db:"start_time"`
-	EndTime    time.Time `db:"end_time"`
-	Public     bool      `db:"public"`
-	CreateTime time.Time `db:"create_time"`
-	UpdateTime time.Time `db:"update_time"`
-	IsDeleted  bool      `db:"is_deleted"`
+	ID         int           `db:"id"`
+	Title      string        `db:"title"`
+	Desc       string        `db:"description"`
+	ProblemIDs pq.Int64Array `db:"problem_ids"`
+	CreatorID  int           `db:"creator_id"`
+	DomainID   int           `db:"domain_id"`
+	StartTime  time.Time     `db:"start_time"`
+	EndTime    time.Time     `db:"end_time"`
+	Public     bool          `db:"public"`
+	CreateTime time.Time     `db:"create_time"`
+	UpdateTime time.Time     `db:"update_time"`
+	IsDeleted  bool          `db:"is_deleted"`
 }
 
 type Contest struct {
-	ID             int       `db:"id"`
-	Title          string    `db:"title"`
-	Desc           string    `db:"description"`
-	Typee          string    `db:"type"`
-	ParticipantNum int       `db:"participant_num"`
-	CreatorID      int       `db:"creator_id"`
-	DomainID       int       `db:"domain_id"`
-	StartTime      time.Time `db:"start_time"`
-	EndTime        time.Time `db:"end_time"`
-	Public         bool      `db:"public"`
-	CreateTime     time.Time `db:"create_time"`
-	UpdateTime     time.Time `db:"update_time"`
-	IsDeleted      bool      `db:"is_deleted"`
+	ID         int           `db:"id"`
+	Title      string        `db:"title"`
+	Desc       string        `db:"description"`
+	ProblemIDs pq.Int64Array `db:"problem_ids"`
+	Typee      string        `db:"type"`
+	CreatorID  int           `db:"creator_id"`
+	DomainID   int           `db:"domain_id"`
+	StartTime  time.Time     `db:"start_time"`
+	EndTime    time.Time     `db:"end_time"`
+	Public     bool          `db:"public"`
+	CreateTime time.Time     `db:"create_time"`
+	UpdateTime time.Time     `db:"update_time"`
+	IsDeleted  bool          `db:"is_deleted"`
 }
 
 type Discussion struct {
@@ -98,6 +103,21 @@ type DiscussionComment struct {
 }
 
 type Role struct {
+	ID         int       `db:"id"`
+	Name       string    `db:"name"`
+	Desc       string    `db:"description"`
+	Permission int       `db:"permission"`
+	DomainID   int       `db:"domain_id"`
+	CreateTime time.Time `db:"create_time"`
+	UpdateTime time.Time `db:"update_time"`
+	IsDeleted  bool      `db:"is_deleted"`
+}
+
+type TestCase struct {
+	ID       int    `db:"id"`
+	Input    string `db:"in"`
+	Output   string `db:"out"`
+	IsSample bool   `db:"is_sample"`
 }
 
 type Permission struct {

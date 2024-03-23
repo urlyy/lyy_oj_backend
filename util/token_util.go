@@ -1,7 +1,7 @@
 package util
 
 import (
-	"log"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -35,7 +35,8 @@ func ParseToken(tokenString string) *CustomClaims {
 		return []byte("AllYourBase"), nil
 	})
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("到这了")
+		// log.Fatal(err)
 		return nil
 	} else if claims, ok := token.Claims.(*CustomClaims); ok {
 		return claims

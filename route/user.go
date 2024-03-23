@@ -5,6 +5,7 @@ import (
 	"backend/util"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,9 +22,9 @@ func login(c *gin.Context) {
 	c.ShouldBindJSON(&input)
 	users := []model.User{}
 	if input.Email != "" {
-		util.GetDB().Select(&users, `SELECT * FROM "user" WHERE email=$1`, input.Email)
+		util.GetDB().Select(&users, `SELECT * FROM "user" WHERE email=$1 AND is_deleted=false`, input.Email)
 	} else if input.TrueID != "" {
-		util.GetDB().Select(&users, `SELECT * FROM "user" WHERE true_id=$1`, input.TrueID)
+		util.GetDB().Select(&users, `SELECT * FROM "user" WHERE true_id=$1 AND is_deleted=false`, input.TrueID)
 	}
 	if len(users) == 0 {
 		NewResult(c).Fail("登录失败，请重新输入登录信息")
@@ -33,9 +34,9 @@ func login(c *gin.Context) {
 		user := users[0]
 		// TODO 校验密码
 		tokenn, _ := util.GenToken(int64(user.ID))
-		util.GetDB().Exec(`UPDATE "user" SET session_token=$1,last_login=$2 WHERE id=$2`, tokenn, time.Now(), user.ID)
+		util.GetDB().MustExec(`UPDATE "user" SET session_token=$1,last_login=$2 WHERE id=$3`, tokenn, time.Now(), user.ID)
 		domain_ids := []int{}
-		util.GetDB().Select(&domain_ids, `SELECT domain_id FROM domain_user WHERE user_id=$1`, user.ID)
+		util.GetDB().Select(&domain_ids, `SELECT domain_id FROM domain_user WHERE user_id=$1 AND is_deleted=false`, user.ID)
 		data := map[string]interface{}{
 			"token": tokenn,
 			"user": map[string]interface{}{
@@ -45,6 +46,7 @@ func login(c *gin.Context) {
 				"email":    user.Email,
 				"school":   user.School,
 				"gender":   user.Gender,
+				"website":  user.Website,
 			},
 		}
 		//看看是否直接进入域
@@ -133,6 +135,7 @@ func changeEmail(c *gin.Context) {
 }
 
 func getUserProfile(c *gin.Context) {
+
 	type Params struct {
 		UserID int `uri:"id" binding:"required"`
 	}
@@ -154,9 +157,134 @@ func getUserProfile(c *gin.Context) {
 			"school":    user.School,
 			"gender":    user.Gender,
 			"lastLogin": user.LastLogin,
+			"website":   user.Website,
 		},
 		"submitRecords": map[string]interface{}{},
 	})
+}
+
+func changeUserProfile(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	type ReqData struct {
+		Username string `json:"username"  binding:"required"`
+		School   string `json:"school"`
+		Gender   int    `json:"gender"`
+		Website  string `json:"website"`
+	}
+	var reqData ReqData
+	if err := c.ShouldBindJSON(&reqData); err != nil {
+		NewResult(c).Fail("参数错误")
+		return
+	}
+	util.GetDB().MustExec(`
+		UPDATE "user" SET username=$1,gender=$2,school=$3,website=$4 
+		WHERE id=$5`,
+		reqData.Username, reqData.Gender, reqData.School, reqData.Website, userID,
+	)
+	NewResult(c).Success("", nil)
+}
+
+func createUsers(c *gin.Context) {
+	type User struct {
+		TrueID   int
+		Gender   int
+		Username string
+		School   string
+	}
+	type ReqData struct {
+		Users []User `json:"users"  binding:"required"`
+	}
+	var reqData ReqData
+	err := c.ShouldBindJSON(&reqData)
+	if err != nil {
+		NewResult(c).Fail("参数错误")
+		return
+	}
+	retData := make([][]interface{}, len(reqData.Users))
+	for idx, user := range reqData.Users {
+		var userID int
+		params := []interface{}{user.TrueID, user.Username, "1234", user.School, "", "salt", "token", user.Gender, false, time.Now(), ""}
+		err := util.GetDB().QueryRow(`
+		INSERT INTO "user"(true_id,username,password,school,
+			email,salt,session_token,gender,is_deleted,last_login,website
+		)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		RETURNING id
+		`, params...).Scan(&userID)
+		if err != nil {
+			fmt.Println("服务端异常")
+			NewResult(c).Fail("新建用户失败")
+			return
+		}
+		email := fmt.Sprintf("%s%d@%d", user.Username, userID, userID)
+		util.GetDB().Exec(`
+			UPDATE "user" SET email=$1
+			WHERE id=$2`, email, userID,
+		)
+		retData[idx] = []interface{}{user.TrueID, user.Username, email}
+	}
+	NewResult(c).Success("创建成功", map[string]interface{}{
+		"users": retData,
+	})
+}
+
+func searchUser(c *gin.Context) {
+	pageNumStr := c.DefaultQuery("page", "1")
+	keyword := c.DefaultQuery("keyword", "")
+	trueID := c.DefaultQuery("trueID", "")
+	pageNum, err := strconv.Atoi(pageNumStr)
+	if err != nil {
+		NewResult(c).Fail("参数错误")
+		return
+	}
+	var users []model.User
+	params := []interface{}{PAGE_SIZE, (pageNum - 1) * PAGE_SIZE}
+	extra_where := ""
+	if trueID != "" {
+		params = append(params, trueID)
+		extra_where += fmt.Sprintf(" AND true_id=$%d", len(params))
+	}
+	if keyword != "" {
+		params = append(params, "%"+keyword+"%")
+		extra_where += fmt.Sprintf(" AND username LIKE $%d", len(params))
+	}
+	sql := fmt.Sprintf(`
+		SELECT *
+		FROM "user"
+		WHERE is_deleted = false %s
+		LIMIT $1 OFFSET $2`, extra_where,
+	)
+	util.GetDB().Select(&users, sql, params...)
+	retUsers := make([]map[string]interface{}, len(users))
+	for i, user := range users {
+		retUsers[i] = map[string]interface{}{
+			"id":       user.ID,
+			"username": user.Username,
+			"true_id":  user.TrueID,
+			"school":   user.School,
+			"email":    user.Email,
+			"gender":   user.Gender,
+		}
+	}
+	NewResult(c).Success("", map[string]interface{}{
+		"users": retUsers,
+	})
+}
+
+func addUser2Domain(c *gin.Context) {
+	domainID, err1 := getPathInt(c, "id")
+	type ReqData struct {
+		UserIDs []int `json:"userIDs"  binding:"required"`
+	}
+	var reqData ReqData
+	err2 := c.ShouldBindJSON(&reqData)
+	if err1 != nil || err2 != nil {
+		NewResult(c).Fail("参数错误")
+		return
+	}
+	for _, userID := range reqData.UserIDs {
+		util.GetDB().Exec(`INSERT INTO domain_user(user_id,domain_id) VALUES($1,$2)`, userID, domainID)
+	}
+	NewResult(c).Success("", nil)
 }
 
 func addUserRoute(r *gin.Engine) {
@@ -167,4 +295,8 @@ func addUserRoute(r *gin.Engine) {
 	api.POST("/pass", changePassword)
 	api.POST("/email", changeEmail)
 	api.GET("/:id/profile", getUserProfile)
+	api.POST("/profile", changeUserProfile)
+	api.POST("", createUsers)
+	api.POST("/domain/:id", addUser2Domain)
+	api.GET("/user", searchUser)
 }

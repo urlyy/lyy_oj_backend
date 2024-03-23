@@ -39,3 +39,7 @@ func jwtAuthMiddleware() func(c *gin.Context) {
 		}
 	}
 }
+
+func addMiddleware(r *gin.Engine) {
+	r.Use(configCors(), jwtAuthMiddleware())
+}

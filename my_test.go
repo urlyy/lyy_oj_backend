@@ -42,6 +42,20 @@ func Test2(t *testing.T) {
 func TestDB(t *testing.T) {
 	params := "host=192.168.88.132 port=5432 user=postgres password=root dbname=lyy_oj sslmode=disable"
 	db := sqlx.MustConnect("postgres", params)
+	type Row struct {
+		ProblemIDs int `db:"id"`
+	}
+	var row Row
+	err := db.Get(&row, `
+	SELECT id
+	FROM problem
+	WHERE domain_id=$1 AND is_deleted = false AND public=true AND title LIKE $2`, 1, "%标%")
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		// problemIDs := []int64(rows.ProblemIDs)
+		fmt.Println(row)
+	}
 
 	// if err != nil {
 	// 	if err == sql.ErrNoRows {
