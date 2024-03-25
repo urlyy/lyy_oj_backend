@@ -186,10 +186,10 @@ func changeUserProfile(c *gin.Context) {
 
 func createUsers(c *gin.Context) {
 	type User struct {
-		TrueID   int
-		Gender   int
-		Username string
-		School   string
+		TrueID   int    `json:"trueId"  binding:"required"`
+		Gender   int    `json:"gender"  binding:"required"`
+		Username string `json:"username"  binding:"required"`
+		School   string `json:"school"  binding:"required"`
 	}
 	type ReqData struct {
 		Users []User `json:"users"  binding:"required"`
@@ -197,13 +197,15 @@ func createUsers(c *gin.Context) {
 	var reqData ReqData
 	err := c.ShouldBindJSON(&reqData)
 	if err != nil {
+		fmt.Println(err)
 		NewResult(c).Fail("参数错误")
 		return
 	}
 	retData := make([][]interface{}, len(reqData.Users))
 	for idx, user := range reqData.Users {
 		var userID int
-		params := []interface{}{user.TrueID, user.Username, "1234", user.School, "", "salt", "token", user.Gender, false, time.Now(), ""}
+		password := "1234"
+		params := []interface{}{user.TrueID, user.Username, password, user.School, "", "salt", "token", user.Gender, false, time.Now(), ""}
 		err := util.GetDB().QueryRow(`
 		INSERT INTO "user"(true_id,username,password,school,
 			email,salt,session_token,gender,is_deleted,last_login,website
@@ -220,7 +222,7 @@ func createUsers(c *gin.Context) {
 			UPDATE "user" SET email=$1
 			WHERE id=$2`, email, userID,
 		)
-		retData[idx] = []interface{}{user.TrueID, user.Username, email}
+		retData[idx] = []interface{}{user.TrueID, user.Username, email, password}
 	}
 	NewResult(c).Success("创建成功", map[string]interface{}{
 		"users": retData,
@@ -231,6 +233,7 @@ func searchUser(c *gin.Context) {
 	pageNumStr := c.DefaultQuery("page", "1")
 	keyword := c.DefaultQuery("keyword", "")
 	trueID := c.DefaultQuery("trueID", "")
+	school := c.DefaultQuery("school", "")
 	pageNum, err := strconv.Atoi(pageNumStr)
 	if err != nil {
 		NewResult(c).Fail("参数错误")
@@ -247,6 +250,10 @@ func searchUser(c *gin.Context) {
 		params = append(params, "%"+keyword+"%")
 		extra_where += fmt.Sprintf(" AND username LIKE $%d", len(params))
 	}
+	if school != "" {
+		params = append(params, "%"+school+"%")
+		extra_where += fmt.Sprintf(" AND school LIKE $%d", len(params))
+	}
 	sql := fmt.Sprintf(`
 		SELECT *
 		FROM "user"
@@ -259,7 +266,7 @@ func searchUser(c *gin.Context) {
 		retUsers[i] = map[string]interface{}{
 			"id":       user.ID,
 			"username": user.Username,
-			"true_id":  user.TrueID,
+			"trueID":   user.TrueID,
 			"school":   user.School,
 			"email":    user.Email,
 			"gender":   user.Gender,
@@ -298,5 +305,5 @@ func addUserRoute(r *gin.Engine) {
 	api.POST("/profile", changeUserProfile)
 	api.POST("", createUsers)
 	api.POST("/domain/:id", addUser2Domain)
-	api.GET("/user", searchUser)
+	api.GET("", searchUser)
 }

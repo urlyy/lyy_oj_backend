@@ -121,6 +121,8 @@ type TestCase struct {
 }
 
 type Permission struct {
+	Name string `db:"name" json:"name"`
+	Bit  int    `db:"bit" json:"bit"`
 }
 
 type RolePermission struct {

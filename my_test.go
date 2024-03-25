@@ -42,30 +42,16 @@ func Test2(t *testing.T) {
 func TestDB(t *testing.T) {
 	params := "host=192.168.88.132 port=5432 user=postgres password=root dbname=lyy_oj sslmode=disable"
 	db := sqlx.MustConnect("postgres", params)
-	type Row struct {
-		ProblemIDs int `db:"id"`
-	}
-	var row Row
-	err := db.Get(&row, `
-	SELECT id
-	FROM problem
-	WHERE domain_id=$1 AND is_deleted = false AND public=true AND title LIKE $2`, 1, "%标%")
-	if err != nil {
-		fmt.Println(err)
-	} else {
-		// problemIDs := []int64(rows.ProblemIDs)
-		fmt.Println(row)
-	}
+	var ids = []int{1, 10}
 
-	// if err != nil {
-	// 	if err == sql.ErrNoRows {
-	// 		fmt.Println("没有找到")
-	// 	} else {
-	// 		fmt.Println("eerrr", err)
-	// 	}
-	// } else {
-
-	// }
+	rows, err := db.Query(`SELECT * FROM "user" WHERE is_deleted=? AND  id IN (?);`, false, ids)
+	// query, args, _ := sqlx.In(`SELECT * FROM "user" WHERE is_deleted=? AND  id IN (?);`, false, ids)
+	// fmt.Println(query, args)
+	// sqlx.In returns queries with the `?` bindvar, we can rebind it for our backend
+	// query = db.Rebind(query)
+	// fmt.Println(query)
+	// rows, err := db.Query(query, args...)
+	fmt.Println(rows, err)
 }
 
 func TestSM3(t *testing.T) {

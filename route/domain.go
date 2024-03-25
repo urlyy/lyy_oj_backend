@@ -4,8 +4,11 @@ import (
 	"backend/model"
 	"backend/util"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 )
 
 func getDomainsByUserID(c *gin.Context) {
@@ -137,6 +140,7 @@ func getDomainRoles(c *gin.Context) {
 	err = util.GetDB().Select(&roles, `
 		SELECT * FROM role
 		WHERE (domain_id=0 OR domain_id=$1) AND is_deleted=false
+		ORDER BY id
 		`,
 		domainID,
 	)
@@ -147,10 +151,11 @@ func getDomainRoles(c *gin.Context) {
 	ret_roles := make([]map[string]interface{}, len(roles))
 	for i, role := range roles {
 		ret_roles[i] = map[string]interface{}{
-			"id":       role.ID,
-			"name":     role.Name,
-			"desc":     role.Desc,
-			"domainID": role.DomainID,
+			"id":         role.ID,
+			"name":       role.Name,
+			"desc":       role.Desc,
+			"domainID":   role.DomainID,
+			"permission": role.Permission,
 		}
 	}
 	NewResult(c).Success("", map[string]interface{}{
@@ -172,48 +177,144 @@ func removeDomainUsers(c *gin.Context) {
 		NewResult(c).Fail("参数错误")
 		return
 	}
-	util.GetDB().MustExec(`UPDATE domain_user SET is_deleted=true WHERE domain_id=$1 AND user_id IN ($2)`, domainID, reqData.UserIDs)
+	sql, args, _ := sqlx.In(`UPDATE domain_user SET is_deleted=true WHERE domain_id=? AND user_id IN (?)`, domainID, reqData.UserIDs)
+	util.GetDB().MustExec(util.GetDB().Rebind(sql), args...)
 	NewResult(c).Success("", nil)
 }
 
-func removeDomainRoles(c *gin.Context) {
-	domainID, err := getPathInt(c, "domainID")
-	if err != nil {
-		NewResult(c).Fail("参数错误")
-		return
-	}
-	type ReqData struct {
-		RoleIDs []int `json:"roleIDs"  binding:"required"`
-	}
-	reqData := ReqData{}
-	if err := c.ShouldBindJSON(&reqData); err != nil {
-		NewResult(c).Fail("参数错误")
-		return
-	}
-	util.GetDB().MustExec(`UPDATE role SET is_deleted=true WHERE domain_id=$1 AND id IN ($2)`, domainID, reqData.RoleIDs)
-	NewResult(c).Success("", nil)
-}
+// func removeDomainRoles(c *gin.Context) {
+// 	domainID, err := getPathInt(c, "domainID")
+// 	if err != nil {
+// 		NewResult(c).Fail("参数错误")
+// 		return
+// 	}
+// 	type ReqData struct {
+// 		RoleIDs []int `json:"roleIDs"  binding:"required"`
+// 	}
+// 	reqData := ReqData{}
+// 	if err := c.ShouldBindJSON(&reqData); err != nil {
+// 		NewResult(c).Fail("参数错误")
+// 		return
+// 	}
+// 	sql, args, _ := sqlx.In(`UPDATE role SET is_deleted=true WHERE domain_id=? AND id IN (?);`, domainID, reqData.RoleIDs)
+// 	util.GetDB().MustExec(util.GetDB().Rebind(sql), args...)
+// 	NewResult(c).Success("", nil)
+// }
 
-func updateDomainUsersRole(c *gin.Context) {
-	domainID, err := getPathInt(c, "id")
-	if err != nil {
-		NewResult(c).Fail("参数错误")
-		return
-	}
+func changeDomainUsersRole(c *gin.Context) {
+	domainID, err1 := getPathInt(c, "id")
 	type ReqData struct {
 		UserIDs []int `json:"userIDs"  binding:"required"`
 		RoleID  int   `json:"roleID" binding:"required"`
 	}
 	reqData := ReqData{}
-	if err := c.ShouldBindJSON(&reqData); err != nil {
+	err2 := c.ShouldBindJSON(&reqData)
+	if err1 != nil || err2 != nil {
 		NewResult(c).Fail("参数错误")
 		return
 	}
-	util.GetDB().MustExec(`UPDATE domain_user SET role_id=$1 WHERE domain_id=$2 AND user_id IN ($3)`, reqData.RoleID, domainID, reqData.UserIDs)
+	fmt.Println(reqData.RoleID, domainID, reqData.UserIDs)
+	sql, args, _ := sqlx.In(`UPDATE domain_user SET role_id=? WHERE domain_id=? AND user_id IN (?)`, reqData.RoleID, domainID, reqData.UserIDs)
+	util.GetDB().MustExec(util.GetDB().Rebind(sql), args...)
 	NewResult(c).Success("", nil)
 }
 
+func changeDomainRole(c *gin.Context) {
+	domainID, err1 := getPathInt(c, "id")
+	roleID, err2 := getPathInt(c, "rid")
+	if err1 != nil || err2 != nil {
+		NewResult(c).Fail("参数错误")
+		return
+	}
+	roleDesc := c.Query("desc")
+	roleName := c.Query("name")
+	util.GetDB().MustExec("UPDATE role SET description=$1 AND name=$2 WHERE id=$3 AND domain_id=$4", roleDesc, roleName, roleID, domainID)
+	NewResult(c).Success("", nil)
+}
+
+func upsertDomainRole(c *gin.Context) {
+	domainID, err1 := getPathInt(c, "id")
+	roleName := c.Query("name")
+	if err1 != nil || roleName == "" {
+		NewResult(c).Fail("参数错误")
+		return
+	}
+	roleDesc := c.DefaultQuery("desc", "角色描述")
+	roleIDStr := c.DefaultQuery("id", "")
+	var roleID int
+	if roleIDStr == "" {
+		util.GetDB().QueryRow(`
+			INSERT INTO role(name,description,domain_id,permission,is_deleted,create_time,update_time)
+			VALUES($1,$2,$3,$4,$5,$6,$6)
+			RETURNING id`,
+			roleName, roleDesc, domainID, 0, false, time.Now(),
+		).Scan(&roleID)
+	} else {
+		roleID, err := strconv.Atoi(roleIDStr)
+		if err != nil {
+			NewResult(c).Fail("参数错误")
+			return
+		}
+		util.GetDB().MustExec(`
+		UPDATE role SET name=$1,description=$2,update_time=$3
+		WHERE id=$4
+	`, roleName, roleDesc, time.Now(), roleID)
+	}
+	NewResult(c).Success("", map[string]interface{}{
+		"role": map[string]interface{}{
+			"id":   roleID,
+			"name": roleName,
+			"desc": roleDesc,
+		},
+	})
+}
+
+func getPermissions(c *gin.Context) {
+	var permissions []model.Permission
+	util.GetDB().Select(&permissions, `
+		SELECT * FROM permission 
+		ORDER BY bit
+	`)
+	ret_permissions := make(map[string]interface{}, len(permissions))
+	for _, permission := range permissions {
+		ret_permissions[permission.Name] = permission.Bit
+	}
+	NewResult(c).Success("", map[string]interface{}{
+		"permissions": ret_permissions,
+	})
+}
+
+func changeDomainRolePermission(c *gin.Context) {
+	domainID, err1 := getPathInt(c, "id")
+	roleID, err2 := getPathInt(c, "rid")
+	bit, err3 := getPathInt(c, "bit")
+	have, err3 := getPathInt(c, "have")
+	if err1 != nil || err2 != nil || err3 != nil || bit < 0 || (have != 0 && have != 1) {
+		NewResult(c).Fail("参数错误")
+		return
+	}
+	var role model.Role
+	err := util.GetDB().Get(&role, "SELECT * FROM role WHERE id=$1", roleID)
+	if err != nil || (domainID != role.DomainID && role.DomainID != 0) {
+		fmt.Println(err)
+		NewResult(c).Fail("参数错误")
+		return
+	}
+	newPermission := role.Permission & (^(1 << bit))
+	if have == 1 {
+		newPermission += 1 << bit
+	}
+	util.GetDB().MustExec(`
+		UPDATE role SET permission=$1 WHERE id=$2
+	`, newPermission, roleID)
+	role.Permission = newPermission
+	NewResult(c).Success("", map[string]interface{}{
+		"permission": newPermission,
+	})
+}
+
 func addDomainRoute(r *gin.Engine) {
+	r.GET("/permission", getPermissions)
 	api := r.Group("/domain")
 	api.GET("/:id", getDomainByID)
 	api.GET("/list", getDomainsByUserID)
@@ -221,6 +322,9 @@ func addDomainRoute(r *gin.Engine) {
 	api.GET("/:id/user", getDomainUsers)
 	api.GET("/:id/role", getDomainRoles)
 	api.POST("/:id/user/delete", removeDomainUsers)
-	api.POST("/:id/role/delete", removeDomainRoles)
-	api.POST("/:id/user/role", updateDomainUsersRole)
+
+	api.POST("/:id/user/role", changeDomainUsersRole)
+	api.POST("/:id/role", upsertDomainRole)
+	api.POST("/:id/role/:rid/permission/:bit/:have", changeDomainRolePermission)
+
 }
