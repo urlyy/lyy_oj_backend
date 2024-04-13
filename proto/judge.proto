@@ -1,0 +1,37 @@
+syntax = "proto3";
+option go_package = "./judge";
+package judge;
+
+service Judge {
+  rpc SubmitJudge (JudgeRequest) returns (JudgeReply) {}
+}
+
+message JudgeRequest {
+  bool special = 1;
+  repeated string inputList =2;
+  repeated string expectList =3;
+  string code=4;
+  string specialCode=5;
+  uint64 timeLimit=6;
+  uint64 memoryLimit=7;
+  string compiler=8;
+  uint64 submissionID =9;
+}
+
+message CompilePending{
+  int32 status=1;
+  string log=2;
+}
+
+message RunPending{
+  int32 status=1;
+  string log=2;
+  uint64 time=3;
+  uint64 memory=4;
+}
+
+message JudgeReply {
+  CompilePending compile =1;
+  repeated RunPending run=2;
+  string lastOutput=3;
+}

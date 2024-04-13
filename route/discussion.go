@@ -4,13 +4,18 @@ import (
 	"backend/model"
 	"backend/util"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-func addDiscussion(c *gin.Context) {
+const (
+	DISCUSSION_PAGE_SIZE = 7
+)
+
+func upsertDiscussion(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	domainID, err1 := getQueryDomainID(c)
 	type ReqData struct {
@@ -28,10 +33,10 @@ func addDiscussion(c *gin.Context) {
 		util.GetDB().MustExec(`
 		INSERT INTO discussion(
 			title,content,creator_id,domain_id,
-			create_time,update_time,is_deleted
-		) VALUES($1,$2,$3,$4,$5,$6,false)`,
+			create_time,update_time,is_deleted,comment_num
+		) VALUES($1,$2,$3,$4,$5,$5,$6,$7)`,
 			reqData.Title, reqData.Content, userID, domainID,
-			time.Now(), time.Now(),
+			time.Now(), false, 0,
 		)
 	} else {
 		util.GetDB().MustExec(`
@@ -46,22 +51,23 @@ func addDiscussion(c *gin.Context) {
 
 func getDiscussions(c *gin.Context) {
 	domainID, err1 := getQueryDomainID(c)
-	pageNumStr := c.DefaultQuery("page", "1")
-	pageNum, err2 := strconv.Atoi(pageNumStr)
+	curPageStr := c.DefaultQuery("page", "1")
+	curPage, err2 := strconv.Atoi(curPageStr)
 	if err1 != nil || err2 != nil {
 		NewResult(c).Fail("参数错误")
 		return
 	}
-	if pageNum < 1 {
-		pageNum = 1
+	if curPage < 1 {
+		curPage = 1
 	}
-	var discussions []model.Discussion
+	discussions := make([]model.Discussion, 0)
 	util.GetDB().Select(&discussions, `
 		SELECT *
 		FROM discussion 
 		WHERE domain_id=$1 AND is_deleted = false 
+		ORDER BY id DESC
 		LIMIT $2 OFFSET $3`,
-		domainID, PAGE_SIZE, (pageNum-1)*PAGE_SIZE)
+		domainID, DISCUSSION_PAGE_SIZE, (curPage-1)*DISCUSSION_PAGE_SIZE)
 	ret_discussions := make([]map[string]interface{}, len(discussions))
 	for i, discussion := range discussions {
 		ret_discussions[i] = map[string]interface{}{
@@ -79,7 +85,14 @@ func getDiscussions(c *gin.Context) {
 		}
 		ret_discussions[i]["creatorUsername"] = user.Username
 	}
-	NewResult(c).Success("", map[string]interface{}{"discussions": ret_discussions})
+	var count int
+	countSql := `
+	SELECT COUNT(*)
+	FROM discussion 
+	WHERE domain_id=$1 AND is_deleted = false `
+	util.GetDB().Get(&count, countSql, domainID)
+	pageNum := math.Ceil(float64(count) / float64(DISCUSSION_PAGE_SIZE))
+	NewResult(c).Success("", map[string]interface{}{"discussions": ret_discussions, "pageNum": pageNum})
 }
 
 func getDiscussionByID(c *gin.Context) {
@@ -159,15 +172,15 @@ func addDiscussionComment(c *gin.Context) {
 	if reqData.FloorID == 0 {
 		reqData.FloorID = commentId
 		reqData.ReplyID = commentId
-		util.GetDB().MustExec("UPDATE discussion SET reply_id=$1,floor_id=$1 WHERE id=$1", commentId)
+		util.GetDB().MustExec("UPDATE discussion_comment SET reply_id=$1,floor_id=$1 WHERE id=$1", commentId)
 	}
 	NewResult(c).Success("", map[string]interface{}{
 		"comment": map[string]interface{}{
 			"id":         commentId,
 			"content":    reqData.Content,
 			"createTime": createTime,
-			"floorID":    commentId,
-			"replyID":    commentId,
+			"floorID":    reqData.FloorID,
+			"replyID":    reqData.ReplyID,
 		},
 	})
 }
@@ -181,22 +194,21 @@ func getDiscussionComments(c *gin.Context) {
 		NewResult(c).Fail("参数错误")
 		return
 	}
-	pageNumStr := c.DefaultQuery("page", "1")
-	pageNum, err := strconv.Atoi(pageNumStr)
-	if err != nil {
-		NewResult(c).Fail("参数错误")
-		return
-	}
-	if pageNum < 1 {
-		pageNum = 1
-	}
-	var comments []model.DiscussionComment
-	err = util.GetDB().Select(&comments, `SELECT * FROM discussion_comment WHERE discussion_id = $1 AND id=floor_id AND is_deleted=false OFFSET $2 LIMIT $3`, params.DiscussionID, (pageNum-1)*PAGE_SIZE, PAGE_SIZE)
+	// pageNumStr := c.DefaultQuery("page", "1")
+	// pageNum, err := strconv.Atoi(pageNumStr)
+	// if err != nil {
+	// 	NewResult(c).Fail("参数错误")
+	// 	return
+	// }
+	// if pageNum < 1 {
+	// 	pageNum = 1
+	// }
+	comments := make([]model.DiscussionComment, 0)
+	err := util.GetDB().Select(&comments, `SELECT * FROM discussion_comment WHERE discussion_id = $1 AND id=floor_id AND is_deleted=false ORDER BY id DESC`, params.DiscussionID)
 	if err != nil {
 		fmt.Println(err)
 		NewResult(c).Fail("数据库错误")
 	}
-	fmt.Println(comments, params.DiscussionID, (pageNum-1)*PAGE_SIZE, PAGE_SIZE)
 	ret_comments := make([]map[string]interface{}, len(comments))
 	for idx, comment := range comments {
 		var creator model.User
@@ -236,13 +248,13 @@ func getDiscussionReplies(c *gin.Context) {
 		NewResult(c).Fail("参数错误")
 		return
 	}
-	var replies []model.DiscussionComment
+	replies := make([]model.DiscussionComment, 0)
 	err = util.GetDB().Select(&replies, `SELECT * FROM discussion_comment WHERE discussion_id = $1 AND floor_id=$2 AND floor_id!=id AND is_deleted=false ORDER BY create_time DESC`, params.DiscussionID, floorID)
 	if err != nil {
 		fmt.Println(err)
 		NewResult(c).Fail("数据库错误")
 	}
-	ret_replies := make([]map[string]interface{}, len(replies))
+	retReplies := make([]map[string]interface{}, len(replies))
 	for idx, reply := range replies {
 		var creator model.User
 		err := util.GetDB().Get(&creator, `SELECT * FROM "user" WHERE id = $1`, reply.CreatorID)
@@ -250,7 +262,7 @@ func getDiscussionReplies(c *gin.Context) {
 			NewResult(c).Fail("服务端异常")
 			return
 		}
-		ret_replies[idx] = map[string]interface{}{
+		retReplies[idx] = map[string]interface{}{
 			"id":              reply.ID,
 			"content":         reply.Content,
 			"replyID":         reply.ReplyID,
@@ -260,33 +272,34 @@ func getDiscussionReplies(c *gin.Context) {
 			"createTime":      reply.CreateTime,
 		}
 	}
-	for idx, reply := range ret_replies {
+	for idx, reply := range retReplies {
 		replyID, floorID := reply["replyID"], reply["floorID"]
 		if replyID == floorID {
-			ret_replies[idx]["replyUsername"] = ""
+			retReplies[idx]["replyUsername"] = ""
 		} else {
-			for _, tmp := range ret_replies {
+			for _, tmp := range retReplies {
 				if tmp["id"] == replyID {
-					ret_replies[idx]["replyUsername"] = tmp["creatorUsername"]
+					retReplies[idx]["replyUsername"] = tmp["creatorUsername"]
+					retReplies[idx]["replyUserID"] = tmp["creatorID"]
 					break
 				}
 			}
 		}
 	}
 	NewResult(c).Success("", map[string]interface{}{
-		"replies": ret_replies,
+		"replies": retReplies,
 	})
 }
 
 func removeDiscussion(c *gin.Context) {
 	contestID := c.Param("id")
-	util.GetDB().Exec("UPDATE discussion SET is_deleted=true WHERE id=$1", contestID)
+	util.GetDB().MustExec("UPDATE discussion SET is_deleted=true WHERE id=$1", contestID)
 	NewResult(c).Success("", nil)
 }
 
 func removeDiscussionComment(c *gin.Context) {
 	commentID := c.Param("id")
-	util.GetDB().Exec("UPDATE discussion_comment SET is_deleted=true WHERE id=$1", commentID)
+	util.GetDB().MustExec("UPDATE discussion_comment SET is_deleted=true WHERE id=$1", commentID)
 	NewResult(c).Success("", nil)
 }
 
@@ -294,7 +307,7 @@ func addDiscussionRoute(r *gin.Engine) {
 	api := r.Group("/discussion")
 	api.GET("/:id", getDiscussionByID)
 	api.GET("/list", getDiscussions)
-	api.POST("", addDiscussion)
+	api.POST("", upsertDiscussion)
 	api.GET("/:id/comment", getDiscussionComments)
 	api.GET("/:id/comment/:floorID/reply", getDiscussionReplies)
 	api.POST("/:id/comment", addDiscussionComment)

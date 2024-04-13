@@ -4,6 +4,7 @@ import (
 	"backend/model"
 	"backend/util"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -12,17 +13,17 @@ import (
 )
 
 func getDomainsByUserID(c *gin.Context) {
-	var domains []model.Domain
 	userID, _ := c.Get("userID")
+	domains := make([]model.Domain, 0)
 	util.GetDB().Select(&domains, `
 	SELECT id,name from domain
 	WHERE id IN (
 		SELECT domain_id FROM domain_user
 		WHERE user_id=$1
-	)`, userID)
-	ret_domains := make([]map[string]interface{}, len(domains))
+	) ORDER BY id DESC`, userID)
+	retDomains := make([]map[string]interface{}, len(domains))
 	for idx, d := range domains {
-		ret_domains[idx] = map[string]interface{}{
+		retDomains[idx] = map[string]interface{}{
 			"id":   d.ID,
 			"name": d.Name,
 		}
@@ -30,7 +31,7 @@ func getDomainsByUserID(c *gin.Context) {
 	NewResult(c).Success(
 		"",
 		map[string]interface{}{
-			"domains": ret_domains,
+			"domains": retDomains,
 		},
 	)
 }
@@ -44,6 +45,7 @@ func getDomainByID(c *gin.Context) {
 	var domain model.Domain
 	err = util.GetDB().Get(&domain, "SELECT * FROM domain WHERE id=$1", domainID)
 	if err != nil {
+		fmt.Println(err)
 		NewResult(c).Fail("无权限获取该域信息或域不存在")
 		return
 	}
@@ -56,6 +58,7 @@ func getDomainByID(c *gin.Context) {
 		userID, domainID,
 	)
 	if err != nil {
+		fmt.Println(err)
 		NewResult(c).Fail("无权限获取该域信息或域不存在")
 	} else {
 		NewResult(c).Success(
@@ -65,7 +68,9 @@ func getDomainByID(c *gin.Context) {
 					"id":         domain.ID,
 					"name":       domain.Name,
 					"announce":   domain.Announce,
+					"recommend":  domain.Recommend,
 					"permission": permission,
+					"ownerID":    domain.OwnerID,
 				},
 			},
 		)
@@ -80,8 +85,9 @@ func changeDomainProfile(c *gin.Context) {
 		return
 	}
 	type ReqData struct {
-		Announce string `json:"announce"  binding:"required"`
-		Name     string `json:"name"  binding:"required"`
+		Announce  string `json:"announce"`
+		Recommend string `json:"recommend"`
+		Name      string `json:"name"  binding:"required"`
 	}
 	reqData := ReqData{}
 	if err := c.ShouldBindJSON(&reqData); err != nil {
@@ -89,42 +95,83 @@ func changeDomainProfile(c *gin.Context) {
 		return
 	}
 	userID, _ := c.Get("userID")
-	fmt.Println(reqData.Announce)
-	util.GetDB().MustExec("UPDATE domain SET announce=$1,name=$2 WHERE id=$3 AND owner_id=$4", reqData.Announce, reqData.Name, domainID, userID)
-	if err != nil {
-		NewResult(c).Fail("数据库错误")
-		return
-	}
+	util.GetDB().MustExec("UPDATE domain SET announce=$1,name=$2,recommend=$3 WHERE id=$4 AND owner_id=$5", reqData.Announce, reqData.Name, reqData.Recommend, domainID, userID)
 	NewResult(c).Success("", nil)
 }
 
+const (
+	DOMAIN_USER_PAGE_SIZE = 25
+)
+
 func getDomainUsers(c *gin.Context) {
-	domainID, err := getPathInt(c, "id")
-	if err != nil {
+	domainID, err1 := getPathInt(c, "id")
+	curPageStr := c.DefaultQuery("page", "1")
+	trueID := c.DefaultQuery("trueID", "")
+	username := c.DefaultQuery("username", "")
+	curPage, err2 := strconv.Atoi(curPageStr)
+	if err1 != nil || err2 != nil {
 		NewResult(c).Fail("参数错误")
 		return
 	}
+	if curPage < 1 {
+		curPage = 1
+	}
 	type UserRole struct {
 		UserID   int    `db:"user_id" json:"userID"`
+		TrueID   int    `db:"true_id" json:"trueID"`
 		RoleID   int    `db:"role_id" json:"roleID"`
 		Username string `db:"username" json:"username"`
 	}
-	var users []UserRole
-	err = util.GetDB().Select(&users, `
-		SELECT "user".id AS user_id,username,role_id FROM "user"
-		INNER JOIN (
-			SELECT user_id,role_id
+	params := []interface{}{domainID, (curPage - 1) * DOMAIN_USER_PAGE_SIZE, DOMAIN_USER_PAGE_SIZE}
+	where := ""
+	countParams := []interface{}{domainID}
+	countWhere := ""
+	if trueID != "" {
+		params = append(params, "%"+trueID+"%")
+		where += fmt.Sprintf(" AND true_id LIKE $%d", len(params))
+		countParams = append(countParams, "%"+trueID+"%")
+		countWhere += fmt.Sprintf(" AND true_id LIKE $%d", len(countParams))
+	}
+	if username != "" {
+		params = append(params, "%"+username+"%")
+		where += fmt.Sprintf(" AND username LIKE $%d", len(params))
+		countParams = append(countParams, "%"+username+"%")
+		countWhere += fmt.Sprintf(" AND username LIKE $%d", len(countParams))
+	}
+	users := make([]UserRole, 0)
+	sql := fmt.Sprintf(`
+		SELECT s.user_id,s1.true_id,s1.username,s.role_id FROM (
+			SELECT user_id,role_id,id
 			FROM domain_user
 			WHERE domain_id=$1 AND is_deleted=false
-		)t
-		ON "user".id = t.user_id`,
-		domainID,
-	)
+			ORDER BY id DESC
+		)s INNER JOIN (
+			SELECT true_id,id,username
+			FROM "user"
+			WHERE 1=1 %s
+		)s1 ON s1.id = s.user_id
+		OFFSET $2 LIMIT $3`, where)
+	err := util.GetDB().Select(&users, sql, params...)
 	if err != nil {
 		NewResult(c).Fail("数据库错误")
 	}
+	var count int
+	countSql := fmt.Sprintf(`
+		SELECT COUNT(*) FROM (
+			SELECT user_id,role_id,id
+			FROM domain_user
+			WHERE domain_id=$1 AND is_deleted=false
+			ORDER BY id DESC
+		)s INNER JOIN (
+			SELECT true_id,id,username
+			FROM "user"
+			WHERE 1=1 %s
+		)s1 ON s1.id = s.user_id`, where)
+	util.GetDB().Get(&count, countSql, countParams...)
+	pageNum := math.Ceil(float64(count) / float64(DOMAIN_USER_PAGE_SIZE))
 	NewResult(c).Success("", map[string]interface{}{
-		"users": users,
+		"users":   users,
+		"pageNum": pageNum,
 	})
 }
 
@@ -136,7 +183,7 @@ func getDomainRoles(c *gin.Context) {
 		return
 	}
 
-	var roles []model.Role
+	roles := make([]model.Role, 0)
 	err = util.GetDB().Select(&roles, `
 		SELECT * FROM role
 		WHERE (domain_id=0 OR domain_id=$1) AND is_deleted=false
@@ -232,6 +279,17 @@ func changeDomainRole(c *gin.Context) {
 	NewResult(c).Success("", nil)
 }
 
+func addDomainUser(c *gin.Context) {
+	domainID, err1 := getPathInt(c, "id")
+	userID, err2 := getPathInt(c, "uid")
+	if err1 != nil || err2 != nil {
+		NewResult(c).Fail("参数错误")
+		return
+	}
+	util.GetDB().MustExec(`INSERT INTO domain_user(user_id,domain_id,role_id,is_deleted) VALUES($1,$2,$3,$4)`, userID, domainID, 2, false)
+	NewResult(c).Success("", nil)
+}
+
 func upsertDomainRole(c *gin.Context) {
 	domainID, err1 := getPathInt(c, "id")
 	roleName := c.Query("name")
@@ -270,7 +328,7 @@ func upsertDomainRole(c *gin.Context) {
 }
 
 func getPermissions(c *gin.Context) {
-	var permissions []model.Permission
+	permissions := make([]model.Permission, 0)
 	util.GetDB().Select(&permissions, `
 		SELECT * FROM permission 
 		ORDER BY bit
@@ -288,8 +346,8 @@ func changeDomainRolePermission(c *gin.Context) {
 	domainID, err1 := getPathInt(c, "id")
 	roleID, err2 := getPathInt(c, "rid")
 	bit, err3 := getPathInt(c, "bit")
-	have, err3 := getPathInt(c, "have")
-	if err1 != nil || err2 != nil || err3 != nil || bit < 0 || (have != 0 && have != 1) {
+	have, err4 := getPathInt(c, "have")
+	if err1 != nil || err2 != nil || err3 != nil || err4 != nil || bit < 0 || (have != 0 && have != 1) {
 		NewResult(c).Fail("参数错误")
 		return
 	}
@@ -313,16 +371,42 @@ func changeDomainRolePermission(c *gin.Context) {
 	})
 }
 
+func removeDomain(c *gin.Context) {
+	domainID, err := getPathInt(c, "id")
+	if err != nil {
+		NewResult(c).Fail(err.Error())
+		return
+	}
+	util.GetDB().MustExec(`
+		UPDATE domain SET is_deleted=true WHERE id=$1
+	`, domainID)
+	NewResult(c).Success("", nil)
+}
+
+func addDomain(c *gin.Context) {
+	type ReqData struct {
+		Name     []int `json:"userIDs"  binding:"required"`
+		Announce int   `json:"roleID" binding:"required"`
+	}
+	reqData := ReqData{}
+	err := c.ShouldBindJSON(&reqData)
+	if err != nil {
+		NewResult(c).Fail("参数错误")
+		return
+	}
+}
+
 func addDomainRoute(r *gin.Engine) {
 	r.GET("/permission", getPermissions)
 	api := r.Group("/domain")
 	api.GET("/:id", getDomainByID)
 	api.GET("/list", getDomainsByUserID)
 	api.POST("/:id/profile", changeDomainProfile)
-	api.GET("/:id/user", getDomainUsers)
+	api.DELETE("/:id", removeDomain)
+	api.GET("/:id/users", getDomainUsers)
 	api.GET("/:id/role", getDomainRoles)
 	api.POST("/:id/user/delete", removeDomainUsers)
-
+	api.POST("/:id/user/:uid", addDomainUser)
 	api.POST("/:id/user/role", changeDomainUsersRole)
 	api.POST("/:id/role", upsertDomainRole)
 	api.POST("/:id/role/:rid/permission/:bit/:have", changeDomainRolePermission)

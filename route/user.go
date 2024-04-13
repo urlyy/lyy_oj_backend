@@ -20,7 +20,7 @@ func login(c *gin.Context) {
 	}
 	var input Input
 	c.ShouldBindJSON(&input)
-	users := []model.User{}
+	users := make([]model.User, 0)
 	if input.Email != "" {
 		util.GetDB().Select(&users, `SELECT * FROM "user" WHERE email=$1 AND is_deleted=false`, input.Email)
 	} else if input.TrueID != "" {
@@ -28,33 +28,39 @@ func login(c *gin.Context) {
 	}
 	if len(users) == 0 {
 		NewResult(c).Fail("登录失败，请重新输入登录信息")
-	} else if len(users) > 1 {
-		NewResult(c).Fail("存在相同学号/工号用户,请使用邮箱登录")
-	} else {
-		user := users[0]
-		// TODO 校验密码
-		tokenn, _ := util.GenToken(int64(user.ID))
-		util.GetDB().MustExec(`UPDATE "user" SET session_token=$1,last_login=$2 WHERE id=$3`, tokenn, time.Now(), user.ID)
-		domain_ids := []int{}
-		util.GetDB().Select(&domain_ids, `SELECT domain_id FROM domain_user WHERE user_id=$1 AND is_deleted=false`, user.ID)
-		data := map[string]interface{}{
-			"token": tokenn,
-			"user": map[string]interface{}{
-				"id":       user.ID,
-				"trueID":   user.TrueID,
-				"username": user.Username,
-				"email":    user.Email,
-				"school":   user.School,
-				"gender":   user.Gender,
-				"website":  user.Website,
-			},
-		}
-		//看看是否直接进入域
-		if len(domain_ids) == 1 {
-			data["domainID"] = domain_ids[0]
-		}
-		NewResult(c).Success("", data)
+		return
 	}
+	if len(users) > 1 {
+		NewResult(c).Fail("存在相同学号/工号用户,请使用邮箱登录")
+		return
+	}
+	user := users[0]
+	// TODO 校验密码
+	// if user.Password != util.SM3(input.Password, user.Salt) {
+	// 	NewResult(c).Fail("登录失败，请重新输入登录信息")
+	// 	return
+	// }
+	tokenn, _ := util.GenToken(int64(user.ID))
+	util.GetDB().MustExec(`UPDATE "user" SET session_token=$1,last_login=$2 WHERE id=$3`, tokenn, time.Now(), user.ID)
+	domain_ids := make([]int, 0)
+	util.GetDB().Select(&domain_ids, `SELECT domain_id FROM domain_user WHERE user_id=$1 AND is_deleted=false`, user.ID)
+	data := map[string]interface{}{
+		"token": tokenn,
+		"user": map[string]interface{}{
+			"id":       user.ID,
+			"trueID":   user.TrueID,
+			"username": user.Username,
+			"email":    user.Email,
+			"school":   user.School,
+			"gender":   user.Gender,
+			"website":  user.Website,
+		},
+	}
+	//看看是否直接进入域
+	if len(domain_ids) == 1 {
+		data["domainID"] = domain_ids[0]
+	}
+	NewResult(c).Success("", data)
 }
 
 func sendForgetPasswordCaptcha(c *gin.Context) {
@@ -159,7 +165,6 @@ func getUserProfile(c *gin.Context) {
 			"lastLogin": user.LastLogin,
 			"website":   user.Website,
 		},
-		"submitRecords": map[string]interface{}{},
 	})
 }
 
@@ -239,7 +244,7 @@ func searchUser(c *gin.Context) {
 		NewResult(c).Fail("参数错误")
 		return
 	}
-	var users []model.User
+	users := make([]model.User, 0)
 	params := []interface{}{PAGE_SIZE, (pageNum - 1) * PAGE_SIZE}
 	extra_where := ""
 	if trueID != "" {
@@ -305,5 +310,5 @@ func addUserRoute(r *gin.Engine) {
 	api.POST("/profile", changeUserProfile)
 	api.POST("", createUsers)
 	api.POST("/domain/:id", addUser2Domain)
-	api.GET("", searchUser)
+	api.GET("/list", searchUser)
 }

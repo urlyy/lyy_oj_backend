@@ -4,11 +4,16 @@ import (
 	"backend/model"
 	"backend/util"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
+)
+
+const (
+	HOMEWORK_PAGE_SIZE = 7
 )
 
 func upsertHomework(c *gin.Context) {
@@ -18,8 +23,8 @@ func upsertHomework(c *gin.Context) {
 	type ReqData struct {
 		Title      string `json:"title"  binding:"required"`
 		HomeworkID int    `json:"homeworkID"`
-		Desc       string `json:"desc"  binding:"required"`
-		Public     *bool  `json:"pub"  binding:"required"`
+		Desc       string `json:"desc"`
+		Public     *bool  `json:"pub"`
 		StartTime  string `json:"start"   binding:"required"`
 		EndTime    string `json:"end"   binding:"required"`
 		ProblemIDs []int  `json:"problemIDs" binding:"required"`
@@ -65,22 +70,29 @@ func upsertHomework(c *gin.Context) {
 
 func getHomeworks(c *gin.Context) {
 	domainID, err1 := getQueryDomainID(c)
-	pageNumStr := c.DefaultQuery("page", "1")
-	pageNum, err2 := strconv.Atoi(pageNumStr)
+	curPageStr := c.DefaultQuery("page", "1")
+	flag := c.DefaultQuery("flag", "false")
+	curPage, err2 := strconv.Atoi(curPageStr)
 	if err1 != nil || err2 != nil {
 		NewResult(c).Fail("参数错误")
 		return
 	}
-	if pageNum < 1 {
-		pageNum = 1
+	if curPage < 1 {
+		curPage = 1
 	}
-	var homeworks []model.Homework
-	util.GetDB().Select(&homeworks,
-		`SELECT id,title,start_time,end_time
-			FROM homework 
-			WHERE domain_id=$1 AND is_deleted = false 
-			LIMIT $2 OFFSET $3`,
-		domainID, PAGE_SIZE, (pageNum-1)*PAGE_SIZE)
+	homeworks := make([]model.Homework, 0)
+	extra_where := ""
+	if flag != "true" {
+		extra_where = " AND public=true"
+	}
+	sql := fmt.Sprintf(`
+		SELECT id,title,start_time,end_time
+		FROM homework 
+		WHERE domain_id=$1 AND is_deleted = false %s
+		ORDER BY id DESC
+		LIMIT $2 OFFSET $3`, extra_where,
+	)
+	util.GetDB().Select(&homeworks, sql, domainID, HOMEWORK_PAGE_SIZE, (curPage-1)*HOMEWORK_PAGE_SIZE)
 	ret_homeworks := make([]map[string]interface{}, len(homeworks))
 	for i, problem := range homeworks {
 		ret_homeworks[i] = map[string]interface{}{
@@ -90,7 +102,15 @@ func getHomeworks(c *gin.Context) {
 			"endTime":   problem.EndTime,
 		}
 	}
-	NewResult(c).Success("", map[string]interface{}{"homeworks": ret_homeworks})
+	var count int
+	countSql := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM homework 
+		WHERE domain_id=$1 AND is_deleted = false %s
+	`, extra_where)
+	util.GetDB().Get(&count, countSql, domainID)
+	pageNum := math.Ceil(float64(count) / float64(HOMEWORK_PAGE_SIZE))
+	NewResult(c).Success("", map[string]interface{}{"homeworks": ret_homeworks, "pageNum": pageNum})
 }
 
 func getHomeworkByID(c *gin.Context) {
@@ -118,6 +138,7 @@ func getHomeworkByID(c *gin.Context) {
 				"startTime":  homework.StartTime,
 				"endTime":    homework.EndTime,
 				"problemIDs": pids,
+				"public":     homework.Public,
 			},
 		})
 	}

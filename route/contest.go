@@ -4,11 +4,16 @@ import (
 	"backend/model"
 	"backend/util"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
+)
+
+const (
+	CONTEST_PAGE_SIZE = 7
 )
 
 func upsertContest(c *gin.Context) {
@@ -19,7 +24,7 @@ func upsertContest(c *gin.Context) {
 		Typee      string `json:"type" binding:"required"`
 		ContestID  int    `json:"contestID"`
 		Desc       string `json:"desc"  binding:"required"`
-		Public     *bool  `json:"pub"  binding:"required"`
+		Public     bool   `json:"pub" `
 		StartTime  string `json:"start"   binding:"required"`
 		EndTime    string `json:"end"   binding:"required"`
 		ProblemIDs []int  `json:"problemIDs" binding:"required"`
@@ -37,15 +42,17 @@ func upsertContest(c *gin.Context) {
 		NewResult(c).Fail("参数错误")
 		return
 	}
+	now := time.Now()
 	if reqData.ContestID == 0 {
 		util.GetDB().MustExec(`
 		INSERT INTO contest(
 			title,description,public,type,
-			creator_id,domain_id,start_time,
-			end_time,create_time,update_time,is_deleted,problem_ids
-		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,false,$11)`,
+			creator_id,domain_id,start_time,end_time,
+			create_time,update_time,is_deleted,problem_ids
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11)`,
 			reqData.Title, reqData.Desc, reqData.Public, reqData.Typee,
-			userID, domainID, start, end, time.Now(), time.Now(), pq.Array(reqData.ProblemIDs),
+			userID, domainID, start, end,
+			now, false, pq.Array(reqData.ProblemIDs),
 		)
 	} else {
 		util.GetDB().MustExec(`
@@ -63,22 +70,28 @@ func upsertContest(c *gin.Context) {
 
 func getContests(c *gin.Context) {
 	domainID, err1 := getQueryDomainID(c)
-	pageNumStr := c.DefaultQuery("page", "1")
-	pageNum, err2 := strconv.Atoi(pageNumStr)
+	curPageStr := c.DefaultQuery("page", "1")
+	curPage, err2 := strconv.Atoi(curPageStr)
+	flag := c.DefaultQuery("flag", "false")
 	if err1 != nil || err2 != nil {
 		NewResult(c).Fail("参数错误")
 		return
 	}
-	if pageNum < 1 {
-		pageNum = 1
+	if curPage < 1 {
+		curPage = 1
 	}
-	var contests []model.Contest
-	util.GetDB().Select(&contests, `
+	contests := make([]model.Contest, 0)
+	extraWhere := ""
+	if flag != "true" {
+		extraWhere = " AND public=true"
+	}
+	sql := fmt.Sprintf(`
 		SELECT *
 		FROM contest 
-		WHERE domain_id=$1 AND is_deleted = false 
-		LIMIT $2 OFFSET $3`,
-		domainID, PAGE_SIZE, (pageNum-1)*PAGE_SIZE)
+		WHERE domain_id=$1 AND is_deleted = false %s
+		ORDER BY id DESC
+		LIMIT $2 OFFSET $3`, extraWhere)
+	util.GetDB().Select(&contests, sql, domainID, CONTEST_PAGE_SIZE, (curPage-1)*CONTEST_PAGE_SIZE)
 	ret_contests := make([]map[string]interface{}, len(contests))
 	for i, contest := range contests {
 		ret_contests[i] = map[string]interface{}{
@@ -89,7 +102,15 @@ func getContests(c *gin.Context) {
 			"type":      contest.Typee,
 		}
 	}
-	NewResult(c).Success("", map[string]interface{}{"contests": ret_contests})
+	var count int
+	countSql := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM contest 
+		WHERE domain_id=$1 AND is_deleted = false %s
+	`, extraWhere)
+	util.GetDB().Get(&count, countSql, domainID)
+	pageNum := math.Ceil(float64(count) / float64(CONTEST_PAGE_SIZE))
+	NewResult(c).Success("", map[string]interface{}{"contests": ret_contests, "pageNum": pageNum})
 }
 
 func getContestByID(c *gin.Context) {
@@ -117,6 +138,7 @@ func getContestByID(c *gin.Context) {
 				"endTime":    contest.EndTime,
 				"type":       contest.Typee,
 				"problemIDs": pids,
+				"public":     contest.Public,
 			},
 		})
 	}

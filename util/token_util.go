@@ -1,7 +1,6 @@
 package util
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -27,15 +26,14 @@ func GenToken(userId int64) (string, error) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	// 生成签名字符串
-	return token.SignedString([]byte("AllYourBase"))
+	return token.SignedString([]byte("urlyy2024"))
 }
 
 func ParseToken(tokenString string) *CustomClaims {
 	token, err := jwt.ParseWithClaims(tokenString, &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return []byte("AllYourBase"), nil
+		return []byte("urlyy2024"), nil
 	})
 	if err != nil {
-		fmt.Println("到这了")
 		// log.Fatal(err)
 		return nil
 	} else if claims, ok := token.Claims.(*CustomClaims); ok {

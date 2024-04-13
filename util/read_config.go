@@ -33,11 +33,16 @@ type JWT struct {
 	Expire int    `toml:"expire"`
 }
 
+type MQ struct {
+	URL string `toml:"url"`
+}
+
 type MyConfig struct {
 	SMTP     SMTP     `toml:"smtp"`
 	Database Database `toml:"database"`
 	JWT      JWT      `toml:"jwt"`
 	Server   Server   `toml:"server"`
+	MQ       MQ       `toml:"mq"`
 }
 
 func initConfig() *MyConfig {

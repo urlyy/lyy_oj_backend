@@ -22,11 +22,14 @@ type User struct {
 }
 
 type Domain struct {
-	ID        int    `db:"id"`
-	OwnerID   int    `db:"owner_id"`
-	Name      string `db:"name"`
-	Announce  string `db:"announce"`
-	IsDeleted bool   `db:"is_deleted"`
+	ID         int       `db:"id"`
+	OwnerID    int       `db:"owner_id"`
+	Name       string    `db:"name"`
+	Announce   string    `db:"announce"`
+	Recommend  string    `db:"recommend"`
+	CreateTime time.Time `db:"create_time"`
+	UpdateTime time.Time `db:"update_time"`
+	IsDeleted  bool      `db:"is_deleted"`
 }
 
 type Problem struct {
@@ -39,6 +42,8 @@ type Problem struct {
 	InFmt       string    `db:"in_fmt"`
 	OutFmt      string    `db:"out_fmt"`
 	Other       string    `db:"other"`
+	TestCases   string    `db:"test_cases"`
+	SpecialCode string    `db:"special_code"`
 	TimeLimit   int       `db:"time_limit"`
 	MemoryLimit int       `db:"memory_limit"`
 	Diff        int       `db:"diff"`
@@ -114,10 +119,9 @@ type Role struct {
 }
 
 type TestCase struct {
-	ID       int    `db:"id"`
-	Input    string `db:"in"`
-	Output   string `db:"out"`
-	IsSample bool   `db:"is_sample"`
+	Input    string `json:"input"`
+	Expect   string `json:"expect"`
+	IsSample bool   `json:"isSample"`
 }
 
 type Permission struct {
@@ -125,5 +129,27 @@ type Permission struct {
 	Bit  int    `db:"bit" json:"bit"`
 }
 
-type RolePermission struct {
+type Submission struct {
+	ID            int       `db:"id"`
+	ProblemID     int       `db:"problem_id"`
+	DomainID      int       `db:"domain_id"`
+	FromType      string    `db:"from_type"`
+	UserID        int       `db:"user_id"`
+	Code          string    `db:"code"`
+	SubmitTime    time.Time `db:"submit_time"`
+	Status        int       `db:"status"`
+	MaxMemory     int       `db:"max_memory"`
+	MaxTime       int       `db:"max_time"`
+	PassPercent   float32   `db:"pass_percent"`
+	LastJudgeTime time.Time `db:"last_judge_time"`
+	FromID        int       `db:"from_id"`
+	Lang          string    `db:"lang"`
+	Log           string    `db:"log"`
+}
+
+type Config struct {
+	AddressList pq.StringArray `db:"address_list"`
+	Compilers   pq.StringArray `db:"compilers"`
+	Recommend   string         `db:"recommend"`
+	Announce    string         `db:"announce"`
 }
