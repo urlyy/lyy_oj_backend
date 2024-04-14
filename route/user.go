@@ -5,6 +5,7 @@ import (
 	"backend/util"
 	"database/sql"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -40,8 +41,9 @@ func login(c *gin.Context) {
 	// 	NewResult(c).Fail("登录失败，请重新输入登录信息")
 	// 	return
 	// }
-	tokenn, _ := util.GenToken(int64(user.ID))
-	util.GetDB().MustExec(`UPDATE "user" SET session_token=$1,last_login=$2 WHERE id=$3`, tokenn, time.Now(), user.ID)
+	loginTime := time.Now()
+	tokenn, _ := util.GenToken(user.ID, loginTime)
+	util.GetDB().MustExec(`UPDATE "user" SET last_login=$1 WHERE id=$2`, loginTime, user.ID)
 	domain_ids := make([]int, 0)
 	util.GetDB().Select(&domain_ids, `SELECT domain_id FROM domain_user WHERE user_id=$1 AND is_deleted=false`, user.ID)
 	data := map[string]interface{}{
@@ -60,6 +62,7 @@ func login(c *gin.Context) {
 	if len(domain_ids) == 1 {
 		data["domainID"] = domain_ids[0]
 	}
+	util.RedisSet(util.RedisTokenKey(user.ID), strings.Split(loginTime.String(), " m=")[0], util.GetProjectConfig().JWT.Expire*60*60)
 	NewResult(c).Success("", data)
 }
 
@@ -73,31 +76,105 @@ func sendForgetPasswordCaptcha(c *gin.Context) {
 		} else {
 			NewResult(c).Fail("数据库错误")
 		}
-	} else {
-		captchaLength := 6
-		content := fmt.Sprintf("验证码是:%s", util.GenCaptcha(captchaLength))
-		util.SendEmail(email, "忘记密码服务-验证码", content)
-		NewResult(c).Success("", nil)
+		return
 	}
+	key := util.RedisForgetPasswordKey(email)
+	_, err = util.RedisGet(key)
+	if err == nil {
+		NewResult(c).Fail("验证码未过期")
+		return
+	}
+	captchaLength := 6
+	captcha := util.GenCaptcha(captchaLength)
+	content := fmt.Sprintf("验证码是:%s", captcha)
+	err = util.SendEmail(email, "忘记密码服务-验证码", content)
+	if err != nil {
+		NewResult(c).Fail("发送验证码失败")
+		return
+	}
+	util.RedisSet(key, captcha, 300)
+	NewResult(c).Success("", nil)
+}
+
+func sendChangeEmailCaptcha(c *gin.Context) {
+	email := c.Query("email")
+	var user model.User
+	err := util.GetDB().Get(&user, `SELECT * FROM "user" WHERE email=$1`, email)
+	if err == nil {
+		NewResult(c).Fail("邮箱已存在系统中")
+		return
+	}
+	key := util.RedisChangeEmailKey(email)
+	val, err := util.RedisGet(key)
+	fmt.Println(val, err)
+	if err == nil {
+		NewResult(c).Fail("验证码未过期")
+		return
+	}
+	captchaLength := 6
+	captcha := util.GenCaptcha(captchaLength)
+	content := fmt.Sprintf("验证码是:%s", captcha)
+	err = util.SendEmail(email, "修改邮箱服务-验证码", content)
+	if err != nil {
+		NewResult(c).Fail("发送验证码失败")
+		return
+	}
+	util.RedisSet(key, captcha, 300)
+	NewResult(c).Success("", nil)
 }
 
 func forgetPassword(c *gin.Context) {
-
 	type Input struct {
 		Email       string `json:"email"  binding:"required"`
-		NewPassword string `json:"newPassword"  binding:"required"`
+		NewPassword string `json:"password"  binding:"required"`
 		Captcha     string `json:"captcha"  binding:"required"`
 	}
-	var input Input
-	c.ShouldBindJSON(&input)
-	if strings.EqualFold(input.Captcha, "1234") {
-		NewResult(c).Fail("验证码错误")
-	} else {
-		util.GetDB().MustExec(`UPDATE "use" SET password=$1 WHERE email=$2`, input.NewPassword, input.Email)
-		NewResult(c).Success("", nil)
+	var reqData Input
+	if err := c.ShouldBindJSON(&reqData); err != nil {
+		NewResult(c).Fail("参数错误")
+		return
 	}
+	key := util.RedisForgetPasswordKey(reqData.Email)
+	captcha, err := util.RedisGet(key)
+	fmt.Println(err, captcha, reqData.Captcha)
+	if err != nil || !strings.EqualFold(captcha, reqData.Captcha) {
+		NewResult(c).Fail("验证码错误")
+		return
+	}
+	util.GetDB().MustExec(`UPDATE "user" SET password=$1 WHERE email=$2`, reqData.NewPassword, reqData.Email)
+	util.RedisDel(key)
+	NewResult(c).Success("", nil)
 }
 
+func changeEmail(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	type ReqData struct {
+		Password string `json:"password"  binding:"required"`
+		NewEmail string `json:"newEmail"  binding:"required"`
+		Captcha  string `json:"captcha"  binding:"required"`
+	}
+	var reqData ReqData
+	if err := c.ShouldBindJSON(&reqData); err != nil {
+		NewResult(c).Fail("参数错误")
+		return
+	}
+	key := util.RedisChangeEmailKey(reqData.NewEmail)
+	captcha, err := util.RedisGet(key)
+	fmt.Println(err, !strings.EqualFold(captcha, reqData.Captcha), captcha, reqData.Captcha)
+	if err != nil || !strings.EqualFold(captcha, reqData.Captcha) {
+		NewResult(c).Fail("验证码错误")
+		return
+	}
+	var user model.User
+	err = util.GetDB().Get(&user, `SELECT * FROM "user" WHERE id = $1 AND password=$2`, userID, reqData.Password)
+	if err != nil {
+		NewResult(c).Fail("密码错误")
+		return
+	}
+	util.GetDB().MustExec(`UPDATE "user" SET email = $1 WHERE id = $2`, reqData.NewEmail, userID)
+	util.RedisDel(key)
+	NewResult(c).Success("", nil)
+}
 func changePassword(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	type ReqData struct {
@@ -119,27 +196,6 @@ func changePassword(c *gin.Context) {
 	NewResult(c).Success("", nil)
 }
 
-func changeEmail(c *gin.Context) {
-	userID, _ := c.Get("userID")
-	type ReqData struct {
-		Password string `json:"password"  binding:"required"`
-		NewEmail string `json:"newEmail"  binding:"required"`
-	}
-	var reqData ReqData
-	if err := c.ShouldBindJSON(&reqData); err != nil {
-		NewResult(c).Fail("参数错误")
-		return
-	}
-	var user model.User
-	err := util.GetDB().Get(&user, `SELECT * FROM "user" WHERE id = $1 AND password=$2`, userID, reqData.Password)
-	if err != nil {
-		NewResult(c).Fail("密码错误")
-		return
-	}
-	util.GetDB().MustExec(`UPDATE "user" SET email = $1 WHERE id = $2`, reqData.NewEmail, userID)
-	NewResult(c).Success("", nil)
-}
-
 func getUserProfile(c *gin.Context) {
 
 	type Params struct {
@@ -156,6 +212,7 @@ func getUserProfile(c *gin.Context) {
 		NewResult(c).Fail("用户不存在")
 		return
 	}
+
 	NewResult(c).Success("", map[string]interface{}{
 		"user": map[string]interface{}{
 			"username": user.Username,
@@ -189,6 +246,7 @@ func changeUserProfile(c *gin.Context) {
 	NewResult(c).Success("", nil)
 }
 
+// EXCEL 创建用户
 func createUsers(c *gin.Context) {
 	type User struct {
 		TrueID   int    `json:"trueId"  binding:"required"`
@@ -210,11 +268,11 @@ func createUsers(c *gin.Context) {
 	for idx, user := range reqData.Users {
 		var userID int
 		password := "1234"
-		params := []interface{}{user.TrueID, user.Username, password, user.School, "", "salt", "token", user.Gender, false, time.Now(), ""}
+		params := []interface{}{user.TrueID, user.Username, password, user.School, "", "salt", user.Gender, false, time.Now(), ""}
 		err := util.GetDB().QueryRow(`
 		INSERT INTO "user"(true_id,username,password,school,
-			email,salt,session_token,gender,is_deleted,last_login,website
-		)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+			email,salt,gender,is_deleted,last_login,website
+		)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		RETURNING id
 		`, params...).Scan(&userID)
 		if err != nil {
@@ -234,81 +292,113 @@ func createUsers(c *gin.Context) {
 	})
 }
 
-func searchUser(c *gin.Context) {
-	pageNumStr := c.DefaultQuery("page", "1")
-	keyword := c.DefaultQuery("keyword", "")
+const (
+	ALL_USER_PAGE_SIZE = 20
+)
+
+func searchAllUser(c *gin.Context) {
+	curPageStr := c.DefaultQuery("page", "1")
+	username := c.DefaultQuery("username", "")
 	trueID := c.DefaultQuery("trueID", "")
 	school := c.DefaultQuery("school", "")
-	pageNum, err := strconv.Atoi(pageNumStr)
-	if err != nil {
+	curPage, err := strconv.Atoi(curPageStr)
+	domainID, err1 := getQueryDomainID(c)
+	if err != nil || err1 != nil {
 		NewResult(c).Fail("参数错误")
 		return
 	}
-	users := make([]model.User, 0)
-	params := []interface{}{PAGE_SIZE, (pageNum - 1) * PAGE_SIZE}
-	extra_where := ""
+	params := []interface{}{ALL_USER_PAGE_SIZE, (curPage - 1) * ALL_USER_PAGE_SIZE, domainID}
+	extraWhere := ""
+	countParams := []interface{}{domainID}
+	countExtraWhere := ""
 	if trueID != "" {
 		params = append(params, trueID)
-		extra_where += fmt.Sprintf(" AND true_id=$%d", len(params))
-	}
-	if keyword != "" {
-		params = append(params, "%"+keyword+"%")
-		extra_where += fmt.Sprintf(" AND username LIKE $%d", len(params))
+		extraWhere += fmt.Sprintf(" AND true_id=$%d", len(params))
+		countParams = append(countParams, trueID)
+		countExtraWhere += fmt.Sprintf(" AND true_id=$%d", len(countParams))
 	}
 	if school != "" {
-		params = append(params, "%"+school+"%")
-		extra_where += fmt.Sprintf(" AND school LIKE $%d", len(params))
+		params = append(params, school)
+		extraWhere += fmt.Sprintf(" AND school=$%d", len(params))
+		countParams = append(countParams, school)
+		countExtraWhere += fmt.Sprintf(" AND school=$%d", len(countParams))
 	}
+	if username != "" {
+		params = append(params, "%"+username+"%")
+		extraWhere += fmt.Sprintf(" AND username LIKE $%d", len(params))
+		countParams = append(countParams, "%"+username+"%")
+		countExtraWhere += fmt.Sprintf(" AND username LIKE $%d", len(countParams))
+	}
+	type ResUser struct {
+		ID       int    `db:"id" json:"id"`
+		Username string `db:"username" json:"username"`
+		TrueID   string `db:"true_id" json:"trueID"`
+		School   string `db:"school" json:"school"`
+		Email    string `db:"email" json:"email"`
+		Gender   int    `db:"gender" json:"gender"`
+		InDomain bool   `db:"in_domain" json:"inDomain"`
+	}
+	users := make([]ResUser, 0)
 	sql := fmt.Sprintf(`
+	SELECT s.id,username,s.true_id,s.school,s.email,s.gender,
+	CASE 
+		WHEN s1.domain_id IS NULL THEN FALSE 
+		ELSE TRUE
+	END AS in_domain
+	FROM (
 		SELECT *
 		FROM "user"
 		WHERE is_deleted = false %s
-		LIMIT $1 OFFSET $2`, extra_where,
-	)
+		LIMIT $1 OFFSET $2
+	)s LEFT JOIN(
+		SELECT user_id,domain_id
+		FROM domain_user
+		WHERE is_deleted=false AND domain_id=$3
+	)s1 ON s.id=user_id`, extraWhere)
 	util.GetDB().Select(&users, sql, params...)
-	retUsers := make([]map[string]interface{}, len(users))
-	for i, user := range users {
-		retUsers[i] = map[string]interface{}{
-			"id":       user.ID,
-			"username": user.Username,
-			"trueID":   user.TrueID,
-			"school":   user.School,
-			"email":    user.Email,
-			"gender":   user.Gender,
-		}
-	}
+	var count int
+	countSql := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM "user"
+		WHERE is_deleted = false %s`, countExtraWhere,
+	)
+	util.GetDB().Get(&count, countSql, countParams...)
+	pageNum := math.Ceil(float64(count) / float64(ALL_USER_PAGE_SIZE))
 	NewResult(c).Success("", map[string]interface{}{
-		"users": retUsers,
+		"users":   users,
+		"pageNum": pageNum,
 	})
 }
 
-func addUser2Domain(c *gin.Context) {
-	domainID, err1 := getPathInt(c, "id")
-	type ReqData struct {
-		UserIDs []int `json:"userIDs"  binding:"required"`
-	}
-	var reqData ReqData
-	err2 := c.ShouldBindJSON(&reqData)
-	if err1 != nil || err2 != nil {
-		NewResult(c).Fail("参数错误")
-		return
-	}
-	for _, userID := range reqData.UserIDs {
-		util.GetDB().Exec(`INSERT INTO domain_user(user_id,domain_id) VALUES($1,$2)`, userID, domainID)
-	}
-	NewResult(c).Success("", nil)
-}
+// EXCEL
+// func addUser2Domain(c *gin.Context) {
+// 	domainID, err1 := getPathInt(c, "id")
+// 	type ReqData struct {
+// 		UserIDs []int `json:"userIDs"  binding:"required"`
+// 	}
+// 	var reqData ReqData
+// 	err2 := c.ShouldBindJSON(&reqData)
+// 	if err1 != nil || err2 != nil {
+// 		NewResult(c).Fail("参数错误")
+// 		return
+// 	}
+// 	for _, userID := range reqData.UserIDs {
+// 		util.GetDB().Exec(`INSERT INTO domain_user(user_id,domain_id) VALUES($1,$2)`, userID, domainID)
+// 	}
+// 	NewResult(c).Success("", nil)
+// }
 
 func addUserRoute(r *gin.Engine) {
 	api := r.Group("/user")
 	api.POST("/login", login)
 	api.POST("/forget-pass/captcha", sendForgetPasswordCaptcha)
+	api.POST("/change-email/captcha", sendChangeEmailCaptcha)
 	api.POST("/forget-pass", forgetPassword)
 	api.POST("/pass", changePassword)
 	api.POST("/email", changeEmail)
 	api.GET("/:id/profile", getUserProfile)
 	api.POST("/profile", changeUserProfile)
 	api.POST("", createUsers)
-	api.POST("/domain/:id", addUser2Domain)
-	api.GET("/list", searchUser)
+	// api.POST("/domain/:id", addUser2Domain)
+	api.GET("/list", searchAllUser)
 }

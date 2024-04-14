@@ -31,10 +31,12 @@ type Server struct {
 type JWT struct {
 	Secret string `toml:"secret"`
 	Expire int    `toml:"expire"`
+	Key    string `toml:"key"`
 }
 
-type MQ struct {
-	URL string `toml:"url"`
+type Redis struct {
+	Addr     string `toml:"addr"`
+	Password string `toml:"password"`
 }
 
 type MyConfig struct {
@@ -42,7 +44,7 @@ type MyConfig struct {
 	Database Database `toml:"database"`
 	JWT      JWT      `toml:"jwt"`
 	Server   Server   `toml:"server"`
-	MQ       MQ       `toml:"mq"`
+	Redis    Redis    `toml:"redis"`
 }
 
 func initConfig() *MyConfig {

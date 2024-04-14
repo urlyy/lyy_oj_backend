@@ -12,6 +12,10 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+const (
+	DEFAULT_ROLE_ID = 2
+)
+
 func getDomainsByUserID(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	domains := make([]model.Domain, 0)
@@ -19,7 +23,7 @@ func getDomainsByUserID(c *gin.Context) {
 	SELECT id,name from domain
 	WHERE id IN (
 		SELECT domain_id FROM domain_user
-		WHERE user_id=$1
+		WHERE user_id=$1 AND is_deleted=false
 	) ORDER BY id DESC`, userID)
 	retDomains := make([]map[string]interface{}, len(domains))
 	for idx, d := range domains {
@@ -286,8 +290,18 @@ func addDomainUser(c *gin.Context) {
 		NewResult(c).Fail("参数错误")
 		return
 	}
-	util.GetDB().MustExec(`INSERT INTO domain_user(user_id,domain_id,role_id,is_deleted) VALUES($1,$2,$3,$4)`, userID, domainID, 2, false)
-	NewResult(c).Success("", nil)
+	var count int
+	util.GetDB().Get(&count, `
+	SELECT COUNT(*)
+	FROM domain_user WHERE domain_id=$1 AND user_id=$2 `, domainID, userID)
+	if count == 0 {
+		util.GetDB().MustExec(`INSERT INTO domain_user(user_id,domain_id,role_id,is_deleted) VALUES($1,$2,$3,$4)`, userID, domainID, DEFAULT_ROLE_ID, false)
+	} else {
+		util.GetDB().MustExec(`UPDATE domain_user SET is_deleted=false WHERE domain_id=$1 AND user_id=$2 AND role_id=$3`, domainID, userID, DEFAULT_ROLE_ID)
+	}
+	NewResult(c).Success("", map[string]interface{}{
+		"roleID": DEFAULT_ROLE_ID,
+	})
 }
 
 func upsertDomainRole(c *gin.Context) {
@@ -383,17 +397,37 @@ func removeDomain(c *gin.Context) {
 	NewResult(c).Success("", nil)
 }
 
-func addDomain(c *gin.Context) {
-	type ReqData struct {
-		Name     []int `json:"userIDs"  binding:"required"`
-		Announce int   `json:"roleID" binding:"required"`
-	}
-	reqData := ReqData{}
-	err := c.ShouldBindJSON(&reqData)
-	if err != nil {
+func removeDomainRole(c *gin.Context) {
+	domainID, err1 := getPathInt(c, "id")
+	roleID, err2 := getPathInt(c, "rid")
+	if err1 != nil || err2 != nil {
 		NewResult(c).Fail("参数错误")
 		return
 	}
+	util.GetDB().MustExec(`
+		UPDATE role SET is_deleted=true WHERE domain_id=$1 AND id=$2
+	`, domainID, roleID)
+	util.GetDB().MustExec(`
+		UPDATE domain_user 
+		SET role_id=$1 WHERE domain_id=$2 AND role_id=$3
+	`, DEFAULT_ROLE_ID, domainID, roleID)
+	NewResult(c).Success("", nil)
+}
+
+func addDomain(c *gin.Context) {
+	name := c.Query("name")
+	ownerID := c.Query("ownerID")
+	if name == "" || ownerID == "" {
+		NewResult(c).Fail("参数错误")
+		return
+	}
+	var config model.Config
+	util.GetDB().Get(&config, `SELECT * FROM config`)
+	util.GetDB().MustExec(`
+		INSERT INTO domain(name,owner_id,announce,recommend,create_time,update_time,is_deleted)
+		VALUES($1,$2,$3,$4,$5,$5,false)
+	`, name, ownerID, config.Announce, config.Recommend, time.Now())
+	NewResult(c).Success("", nil)
 }
 
 func addDomainRoute(r *gin.Engine) {
@@ -403,12 +437,14 @@ func addDomainRoute(r *gin.Engine) {
 	api.GET("/list", getDomainsByUserID)
 	api.POST("/:id/profile", changeDomainProfile)
 	api.DELETE("/:id", removeDomain)
+	api.POST("", addDomain)
 	api.GET("/:id/users", getDomainUsers)
 	api.GET("/:id/role", getDomainRoles)
 	api.POST("/:id/user/delete", removeDomainUsers)
 	api.POST("/:id/user/:uid", addDomainUser)
 	api.POST("/:id/user/role", changeDomainUsersRole)
 	api.POST("/:id/role", upsertDomainRole)
+	api.DELETE("/:id/role/:rid", removeDomainRole)
 	api.POST("/:id/role/:rid/permission/:bit/:have", changeDomainRolePermission)
 
 }

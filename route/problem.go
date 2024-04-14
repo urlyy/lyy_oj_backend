@@ -48,18 +48,20 @@ func getProblems(c *gin.Context) {
 		extra_where += fmt.Sprintf(" AND title LIKE $%d", len(params))
 	}
 	sql := fmt.Sprintf(`
-		SELECT id,title,diff
+		SELECT id,title,diff,ac_num,submit_num
 		FROM problem 
 		WHERE domain_id=$1 AND is_deleted = false  %s
 		ORDER BY id DESC LIMIT $2 OFFSET $3`, extra_where,
 	)
 	util.GetDB().Select(&problems, sql, params...)
-	ret_problems := make([]map[string]interface{}, len(problems))
+	retProblems := make([]map[string]interface{}, len(problems))
 	for i, problem := range problems {
-		ret_problems[i] = map[string]interface{}{
-			"id":    problem.ID,
-			"title": problem.Title,
-			"diff":  problem.Diff,
+		retProblems[i] = map[string]interface{}{
+			"id":        problem.ID,
+			"title":     problem.Title,
+			"diff":      problem.Diff,
+			"acNum":     problem.ACNum,
+			"submitNum": problem.SubmitNum,
 		}
 	}
 	var count int
@@ -84,7 +86,7 @@ func getProblems(c *gin.Context) {
 	)
 	util.GetDB().Get(&count, countSql, params...)
 	pageNum := math.Ceil(float64(count) / float64(PROBLEM_PAGE_SIZE))
-	NewResult(c).Success("", map[string]interface{}{"problems": ret_problems, "pageNum": pageNum})
+	NewResult(c).Success("", map[string]interface{}{"problems": retProblems, "pageNum": pageNum})
 }
 
 func getProblemByID(c *gin.Context) {
@@ -140,6 +142,8 @@ func getProblemByID(c *gin.Context) {
 			"judgeType":    problem.JudgeType,
 			"specialCode":  problem.SpecialCode,
 			"valid":        valid,
+			"acNum":        problem.ACNum,
+			"submitNum":    problem.SubmitNum,
 		},
 	})
 }
@@ -180,11 +184,13 @@ func upsertProblem(c *gin.Context) {
 						title,description,in_fmt,
 						out_fmt,other,memory_limit,
 						time_limit,diff,domain_id,test_cases,judge_type,special_code,
-						public,creator_id,create_time,update_time,is_deleted
+						public,creator_id,create_time,update_time,is_deleted,
+						submit_num,ac_num
 					) VALUES($1,$2,$3,
 						$4,$5,$6,
 						$7,$8,$9,$10,$11,$12,
-						$13,$14,$15,$15,false
+						$13,$14,$15,$15,false,
+						0,0
 					)`,
 			reqData.Title, reqData.Desc, reqData.InFmt,
 			reqData.OutFmt, reqData.Other, reqData.MemoryLimit,

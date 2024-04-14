@@ -21,7 +21,7 @@ func init() {
 	addDiscussionRoute(r)
 	addJudgeRoute(r)
 	addSubmissionRoute(r)
-	addSystemRoute(r)
+	addConfigRoute(r)
 	addSSERoute(r)
 }
 

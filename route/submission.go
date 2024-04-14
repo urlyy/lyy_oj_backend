@@ -124,7 +124,7 @@ func getSubmissions(c *gin.Context) {
 	}
 	var count int
 	countSql := fmt.Sprintf(`
-		SELECT s.id,s.problem_id,s1.title AS problem_title,s.submit_time,s.status,s.lang,s.from_type,s.from_id,s.max_time,s.max_memory,s.pass_percent,s2.username
+		SELECT COUNT(*)
 		FROM (
 			SELECT * 
 			FROM submission 
@@ -139,7 +139,6 @@ func getSubmissions(c *gin.Context) {
 			FROM "user" 
 			WHERE 1=1 %s
 		)s2 ON s.user_id=s2.id
-		ORDER BY s.id DESC
 		`, countWhere1, countProblemWhere, countUserWhere,
 	)
 	util.GetDB().Get(&count, countSql, countParams...)

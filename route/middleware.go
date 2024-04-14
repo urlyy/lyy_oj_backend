@@ -39,19 +39,25 @@ func jwtAuthMiddleware() func(c *gin.Context) {
 			}
 		}
 		//获取到请求头中的token
-		inputToken := c.Request.Header.Get("Authorization")
+		inputToken := c.Request.Header.Get(util.GetProjectConfig().JWT.Key)
 		if inputToken == "" {
 			NewResult(c).Fail("请登录!")
-		} else {
-			claims := util.ParseToken(inputToken)
-			if claims == nil {
-				NewResult(c).Fail("请重新登录!")
-			} else {
-				c.Set("userID", claims.UserID)
-				// 后续的处理函数可以用过c.Get("username")来获取当前请求的用户信息
-				c.Next()
-			}
+			return
 		}
+		claims := util.ParseToken(inputToken)
+		if claims == nil {
+			NewResult(c).Fail("请重新登录!")
+			return
+		}
+		rdsLoginTime, err := util.RedisGet(util.RedisTokenKey(claims.UserID))
+		//单设备登录
+		if err != nil || rdsLoginTime != claims.LoginTime.String() {
+			NewResult(c).Fail("账号已在其他地方登录，当前无法进行操作")
+			return
+		}
+		// 后续的处理函数可以用过c.Get("username")来获取当前请求的用户信息
+		c.Set("userID", claims.UserID)
+		c.Next()
 	}
 }
 

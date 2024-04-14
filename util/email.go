@@ -1,7 +1,6 @@
 package util
 
 import (
-	"fmt"
 	"math/rand"
 
 	"gopkg.in/gomail.v2"
@@ -19,7 +18,7 @@ func GenCaptcha(length int) string {
 	return captcha
 }
 
-func SendEmail(to string, subject string, content string) {
+func SendEmail(to string, subject string, content string) error {
 	smtp := &GetProjectConfig().SMTP
 	m := gomail.NewMessage()
 	//发送人
@@ -37,7 +36,6 @@ func SendEmail(to string, subject string, content string) {
 	// 第4个参数是填授权码
 	d := gomail.NewDialer(smtp.Server, smtp.Port, smtp.Username, smtp.Password)
 	// 发送邮件
-	if err := d.DialAndSend(m); err != nil {
-		fmt.Println(err)
-	}
+	err := d.DialAndSend(m)
+	return err
 }

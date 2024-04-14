@@ -1,9 +1,7 @@
 package main
 
 import (
-	"context"
 	"encoding/hex"
-	"fmt"
 	"testing"
 	"time"
 
@@ -12,8 +10,12 @@ import (
 	"github.com/tjfoc/gmsm/sm3"
 	"gopkg.in/gomail.v2"
 
+	"context"
+	"fmt"
+
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/redis/go-redis/v9"
 )
 
 func Test(t *testing.T) {
@@ -110,4 +112,23 @@ func TestRPC(t *testing.T) {
 	// 	log.Fatalf("could not greet: %v", err)
 	// }
 	// log.Printf("Greeting: %s", r.GetMessage())
+}
+
+func TestRds(t *testing.T) {
+	client := redis.NewClient(&redis.Options{
+		Addr:     "192.168.88.132:6379",
+		Password: "root", // no password set
+		DB:       0,      // use default DB
+	})
+	ctx := context.Background()
+	client.Set(ctx, "2213732736@qq.com", "qwerqwer", time.Second*0)
+	err := client.Set(ctx, "foo", "bar", 0).Err()
+	if err != nil {
+		panic(err)
+	}
+	val, err := client.Get(ctx, "foo").Result()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("foo", val)
 }

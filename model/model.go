@@ -7,18 +7,18 @@ import (
 )
 
 type User struct {
-	ID           int       `db:"id"`
-	Username     string    `db:"username"`
-	TrueID       string    `db:"true_id"`
-	School       string    `db:"school"`
-	Password     string    `db:"password"`
-	Email        string    `db:"email"`
-	Salt         string    `db:"salt"`
-	SessionToken string    `db:"session_token"`
-	Gender       int       `db:"gender"`
-	IsDeleted    bool      `db:"is_deleted"`
-	LastLogin    time.Time `db:"last_login"`
-	Website      string    `db:"website"`
+	ID       int    `db:"id"`
+	Username string `db:"username"`
+	TrueID   string `db:"true_id"`
+	School   string `db:"school"`
+	Password string `db:"password"`
+	Email    string `db:"email"`
+	Salt     string `db:"salt"`
+	// SessionToken string    `db:"session_token"`
+	Gender    int       `db:"gender"`
+	IsDeleted bool      `db:"is_deleted"`
+	LastLogin time.Time `db:"last_login"`
+	Website   string    `db:"website"`
 }
 
 type Domain struct {
@@ -51,6 +51,8 @@ type Problem struct {
 	CreateTime  time.Time `db:"create_time"`
 	UpdateTime  time.Time `db:"update_time"`
 	IsDeleted   bool      `db:"is_deleted"`
+	ACNum       int       `db:"ac_num"`
+	SubmitNum   int       `db:"submit_num"`
 }
 
 type Homework struct {
@@ -148,8 +150,8 @@ type Submission struct {
 }
 
 type Config struct {
-	AddressList pq.StringArray `db:"address_list"`
-	Compilers   pq.StringArray `db:"compilers"`
-	Recommend   string         `db:"recommend"`
-	Announce    string         `db:"announce"`
+	AddressList pq.StringArray `db:"address_list" json:"addressList"`
+	Compilers   pq.StringArray `db:"compilers" json:"compilers"`
+	Recommend   string         `db:"recommend" json:"recommend"`
+	Announce    string         `db:"announce" json:"announce"`
 }

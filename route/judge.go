@@ -157,6 +157,7 @@ func submitJudge(c *gin.Context) {
 		RETURNING id
 		`, problemID, domainID, reqData.Type, userID, now, reqData.Compiler, reqData.Code, reqData.FromID, JUDGING, 0, 0.0, "",
 	).Scan(&submissionID)
+	util.GetDB().MustExec("UPDATE problem SET submit_num=submit_num+1 WHERE id=$1", problemID)
 	var config model.Config
 	util.GetDB().Get(&config, "SELECT * FROM config")
 	inputList, expectList, timeLimit, memoryLimit, judgeType, specialCode, err := getInOut(problemID)
@@ -171,6 +172,9 @@ func submitJudge(c *gin.Context) {
 	}
 	res := transReply(reply, submissionID)
 	util.GetDB().MustExec(`UPDATE submission SET status=$1,max_time=$2,max_memory=$3,pass_percent=$4,log=$5 WHERE id=$6`, res.Status, res.MaxTime, res.MaxMemory, res.PassPercent, res.Log, submissionID)
+	if res.Status == ACCEPT {
+		util.GetDB().MustExec("UPDATE problem SET ac_num=ac_num+1 WHERE id=$1", problemID)
+	}
 	NewResult(c).Success("", map[string]interface{}{
 		"result": res,
 	})
@@ -213,6 +217,12 @@ func rejudge(c *gin.Context) {
 	}
 	res := transReply(reply, submissionID)
 	util.GetDB().MustExec(`UPDATE submission SET status=$1,max_time=$2,max_memory=$3,pass_percent=$4,log=$5,last_judge_time=$6 WHERE id=$7`, res.Status, res.MaxTime, res.MaxMemory, res.PassPercent, res.Log, time.Now(), submissionID)
+	if res.Status == ACCEPT && submission.Status != ACCEPT {
+		util.GetDB().MustExec("UPDATE problem SET ac_num=ac_num+1 WHERE id=$1", submission.ProblemID)
+	}
+	if res.Status != ACCEPT && submission.Status == ACCEPT {
+		util.GetDB().MustExec("UPDATE problem SET ac_num=ac_num-1 WHERE id=$1", submission.ProblemID)
+	}
 	NewResult(c).Success("", map[string]interface{}{
 		"result": res,
 	})
