@@ -151,7 +151,7 @@ type Submission struct {
 
 type Config struct {
 	AddressList pq.StringArray `db:"address_list" json:"addressList"`
-	Compilers   pq.StringArray `db:"compilers" json:"compilers"`
+	Compilers   string         `db:"compilers" json:"compilers"`
 	Recommend   string         `db:"recommend" json:"recommend"`
 	Announce    string         `db:"announce" json:"announce"`
 }

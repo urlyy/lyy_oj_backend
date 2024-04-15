@@ -13,6 +13,8 @@ import (
 	"context"
 	"fmt"
 
+	"encoding/json"
+
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/redis/go-redis/v9"
@@ -49,17 +51,16 @@ func Test2(t *testing.T) {
 func TestDB(t *testing.T) {
 	params := "host=192.168.88.132 port=5432 user=postgres password=root dbname=lyy_oj sslmode=disable"
 	db := sqlx.MustConnect("postgres", params)
-
-	_, err := db.Exec(`
-		INSERT INTO 
-		submission(problem_id,domain_id,from_type,user_id,submit_time,last_judge_time,lang,code,from_id,status,max_time,max_memory,pass_percent)
-		VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,$10,$10,$11)
-		RETURNING id
-		`, 1, 1, "qwer", 1, time.Now(), "java", "codecode", 1, 6, 0, 0.0,
-	)
-	if err != nil {
-		fmt.Println(err)
+	compilers := [][]string{
+		{"c", "gcc"},
+		{"c++", "cpp"},
 	}
+	res, _ := json.Marshal(compilers)
+	fmt.Println(string(res))
+	db.MustExec(`
+		UPDATE config SET compilers=$1
+	`, string(res))
+
 }
 
 func TestSM3(t *testing.T) {

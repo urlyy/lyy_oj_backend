@@ -180,12 +180,14 @@ func submitJudge(c *gin.Context) {
 	})
 }
 
-func getJudgers(c *gin.Context) {
+func getCompilers(c *gin.Context) {
 	var config model.Config
 	util.GetDB().Get(&config, "SELECT * FROM config")
-	compilers := []string{}
-	for _, c := range config.Compilers {
-		compilers = append(compilers, c)
+	compilers := make([][]string, 0)
+	err := json.Unmarshal([]byte(config.Compilers), &compilers)
+	if err != nil {
+		NewResult(c).Fail("服务端错误")
+		return
 	}
 	NewResult(c).Success("", map[string]interface{}{
 		"compilers": compilers,
@@ -233,5 +235,5 @@ func addJudgeRoute(r *gin.Engine) {
 	api.POST("/:pid/test", submitTest)
 	api.POST("/:pid", submitJudge)
 	api.POST("/re/:sid", rejudge)
-	api.GET("/compiler", getJudgers)
+	api.GET("/compiler", getCompilers)
 }
