@@ -4,6 +4,7 @@ import (
 	"backend/util"
 	"fmt"
 	"regexp"
+	"strconv"
 
 	"net/http"
 
@@ -51,7 +52,7 @@ func jwtAuthMiddleware() func(c *gin.Context) {
 		}
 		rdsLoginTime, err := util.RedisGet(util.RedisTokenKey(claims.UserID))
 		//单设备登录
-		if err != nil || rdsLoginTime != claims.LoginTime.String() {
+		if err != nil || rdsLoginTime != strconv.FormatInt(claims.LoginTime, 10) {
 			NewResult(c).Fail("账号已在其他地方登录，当前无法进行操作")
 			return
 		}

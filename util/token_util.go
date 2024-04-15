@@ -10,9 +10,9 @@ import (
 // 更多信息都可以添加到这个结构体中
 type CustomClaims struct {
 	// 可根据需要自行添加字段
-	UserID               int       `json:"user_id"`
-	LoginTime            time.Time `json:"login_time"`
-	jwt.RegisteredClaims           // 内嵌标准的声明
+	UserID               int   `json:"user_id"`
+	LoginTime            int64 `json:"login_time"`
+	jwt.RegisteredClaims       // 内嵌标准的声明
 }
 
 // GenToken 生成JWT
@@ -20,7 +20,7 @@ func GenToken(userId int, loginTime time.Time) (string, error) {
 	// 创建一个我们自己声明的数据
 	claims := CustomClaims{
 		userId,
-		loginTime,
+		loginTime.UnixNano(),
 		jwt.RegisteredClaims{
 			// 定义过期时间
 			ExpiresAt: jwt.NewNumericDate(loginTime.Add(time.Hour * time.Duration(GetProjectConfig().JWT.Expire))),

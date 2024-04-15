@@ -62,7 +62,7 @@ func login(c *gin.Context) {
 	if len(domain_ids) == 1 {
 		data["domainID"] = domain_ids[0]
 	}
-	util.RedisSet(util.RedisTokenKey(user.ID), strings.Split(loginTime.String(), " m=")[0], util.GetProjectConfig().JWT.Expire*60*60)
+	util.RedisSet(util.RedisTokenKey(user.ID), loginTime.UnixNano(), util.GetProjectConfig().JWT.Expire*60*60)
 	NewResult(c).Success("", data)
 }
 
