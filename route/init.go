@@ -23,6 +23,7 @@ func init() {
 	addSubmissionRoute(r)
 	addConfigRoute(r)
 	addSSERoute(r)
+	addNotificationRoute(r)
 }
 
 func GetRouter() *gin.Engine {

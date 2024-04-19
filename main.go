@@ -2,9 +2,11 @@ package main
 
 import (
 	"backend/route"
+	"backend/util"
+	"strconv"
 )
 
 func main() {
 	r := route.GetRouter()
-	r.Run(":8090")
+	r.Run(":" + strconv.Itoa(util.GetProjectConfig().Server.Port))
 }

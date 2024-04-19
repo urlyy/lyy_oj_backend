@@ -92,6 +92,7 @@ func submitTest(c *gin.Context) {
 	reqData := ReqData{}
 	err3 := c.ShouldBindJSON(&reqData)
 	if err1 != nil || err3 != nil {
+		fmt.Println(err1, err3)
 		NewResult(c).Fail("参数错误")
 		return
 	}

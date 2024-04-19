@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	DEFAULT_ROLE_ID = 2
+	ROLE_OWNER_ID   = 1
+	ROLE_DEFAULT_ID = 2
 )
 
 func getDomainsByUserID(c *gin.Context) {
@@ -295,12 +296,12 @@ func addDomainUser(c *gin.Context) {
 	SELECT COUNT(*)
 	FROM domain_user WHERE domain_id=$1 AND user_id=$2 `, domainID, userID)
 	if count == 0 {
-		util.GetDB().MustExec(`INSERT INTO domain_user(user_id,domain_id,role_id,is_deleted) VALUES($1,$2,$3,$4)`, userID, domainID, DEFAULT_ROLE_ID, false)
+		util.GetDB().MustExec(`INSERT INTO domain_user(user_id,domain_id,role_id,is_deleted) VALUES($1,$2,$3,$4)`, userID, domainID, ROLE_DEFAULT_ID, false)
 	} else {
-		util.GetDB().MustExec(`UPDATE domain_user SET is_deleted=false WHERE domain_id=$1 AND user_id=$2 AND role_id=$3`, domainID, userID, DEFAULT_ROLE_ID)
+		util.GetDB().MustExec(`UPDATE domain_user SET is_deleted=false WHERE domain_id=$1 AND user_id=$2 AND role_id=$3`, domainID, userID, ROLE_DEFAULT_ID)
 	}
 	NewResult(c).Success("", map[string]interface{}{
-		"roleID": DEFAULT_ROLE_ID,
+		"roleID": ROLE_DEFAULT_ID,
 	})
 }
 
@@ -410,23 +411,38 @@ func removeDomainRole(c *gin.Context) {
 	util.GetDB().MustExec(`
 		UPDATE domain_user 
 		SET role_id=$1 WHERE domain_id=$2 AND role_id=$3
-	`, DEFAULT_ROLE_ID, domainID, roleID)
+	`, ROLE_DEFAULT_ID, domainID, roleID)
 	NewResult(c).Success("", nil)
 }
 
 func addDomain(c *gin.Context) {
-	name := c.Query("name")
-	ownerID := c.Query("ownerID")
-	if name == "" || ownerID == "" {
+	type ReqData struct {
+		Name    string `json:"name"`
+		OwnerID int    `json:"ownerID"`
+	}
+	reqData := ReqData{}
+	if err := c.ShouldBindJSON(&reqData); err != nil {
 		NewResult(c).Fail("参数错误")
 		return
 	}
 	var config model.Config
 	util.GetDB().Get(&config, `SELECT * FROM config`)
-	util.GetDB().MustExec(`
+	var newDomainID int
+	err := util.GetDB().QueryRow(`
 		INSERT INTO domain(name,owner_id,announce,recommend,create_time,update_time,is_deleted)
 		VALUES($1,$2,$3,$4,$5,$5,false)
-	`, name, ownerID, config.Announce, config.Recommend, time.Now())
+		RETURNING id
+	`, reqData.Name, reqData.OwnerID, config.Announce, config.Recommend, time.Now(),
+	).Scan(&newDomainID)
+	if err != nil {
+		fmt.Println(err)
+		NewResult(c).Fail("服务端异常")
+		return
+	}
+	util.GetDB().MustExec(`
+		INSERT INTO domain_user(user_id,domain_id,role_id,is_deleted)
+		VALUES($1,$2,$3,false)
+	`, reqData.OwnerID, newDomainID, ROLE_OWNER_ID)
 	NewResult(c).Success("", nil)
 }
 

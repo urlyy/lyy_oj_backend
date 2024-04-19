@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	PROBLEM_PAGE_SIZE = 25
+	PROBLEM_PAGE_SIZE = 15
 )
 
 func getProblems(c *gin.Context) {
@@ -133,7 +133,7 @@ func getProblemByID(c *gin.Context) {
 			"outputFormat": problem.OutFmt,
 			"inputFormat":  problem.InFmt,
 			"other":        problem.Other,
-			"memoryLimit":  problem.MemoryLimit,
+			"memoryLimit":  problem.MemoryLimit / 1024,
 			"timeLimit":    problem.TimeLimit,
 			"diff":         problem.Diff,
 			"createTime":   problem.CreateTime,
@@ -172,7 +172,6 @@ func upsertProblem(c *gin.Context) {
 		return
 	}
 	// 兆转千
-
 	reqData.MemoryLimit *= 1024
 	testCasesBytes, _ := json.Marshal(reqData.TestCases)
 	testCasesStr := ""

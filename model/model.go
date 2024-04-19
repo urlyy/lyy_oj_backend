@@ -155,3 +155,12 @@ type Config struct {
 	Recommend   string         `db:"recommend" json:"recommend"`
 	Announce    string         `db:"announce" json:"announce"`
 }
+
+type Notification struct {
+	ID         int       `db:"id"`
+	Content    string    `db:"content"`
+	Title      string    `db:"title"`
+	DomainID   int       `db:"domain_id"`
+	CreateTime time.Time `db:"create_time"`
+	IsDeleted  bool      `db:"is_deleted"`
+}
