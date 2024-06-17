@@ -15,7 +15,7 @@ message JudgeRequest {
   uint64 timeLimit=6;
   uint64 memoryLimit=7;
   string compiler=8;
-  uint64 submissionID =9;
+  string submissionID =9;
 }
 
 message CompilePending{

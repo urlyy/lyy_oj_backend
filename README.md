@@ -9,6 +9,9 @@ ss -ntulp|grep 2375
 # proto
 protoc --go_out=./ --go-grpc_out=./  hello.proto
 
+cd proto
+protoc --go_out=./ --go-grpc_out=./  judge.proto
+
 source /etc/environment
 软链到/usr/bin
 

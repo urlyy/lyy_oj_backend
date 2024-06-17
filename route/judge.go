@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -96,13 +97,21 @@ func submitTest(c *gin.Context) {
 		NewResult(c).Fail("参数错误")
 		return
 	}
+	dummySubmissionID, err := util.GenUUID()
+	if err != nil {
+		fmt.Println(err, 1)
+		NewResult(c).Fail("服务端错误")
+		return
+	}
 	var problem model.Problem
 	util.GetDB().Get(&problem, "SELECT * FROM problem WHERE id=$1", problemID)
 	var config model.Config
 	util.GetDB().Get(&config, "SELECT * FROM config")
 	inputList := []string{reqData.TestInput}
-	reply, err := util.Judge(config.AddressList, reqData.Code, inputList, inputList, reqData.Compiler, uint64(problem.TimeLimit), uint64(problem.MemoryLimit), problem.JudgeType == 1, problem.SpecialCode)
+	reply, err := util.Judge(dummySubmissionID, config.AddressList, reqData.Code, inputList, inputList, reqData.Compiler, uint64(problem.TimeLimit), uint64(problem.MemoryLimit), problem.JudgeType == 1, problem.SpecialCode)
+	fmt.Println("out ", time.Now())
 	if err != nil {
+		fmt.Println(err, "2")
 		NewResult(c).Fail("服务端错误")
 		return
 	}
@@ -166,7 +175,7 @@ func submitJudge(c *gin.Context) {
 		NewResult(c).Fail("服务端错误")
 		return
 	}
-	reply, err := util.Judge(config.AddressList, reqData.Code, inputList, expectList, reqData.Compiler, uint64(timeLimit), uint64(memoryLimit), judgeType == 1, specialCode)
+	reply, err := util.Judge(strconv.Itoa(submissionID), config.AddressList, reqData.Code, inputList, expectList, reqData.Compiler, uint64(timeLimit), uint64(memoryLimit), judgeType == 1, specialCode)
 	if err != nil {
 		NewResult(c).Fail("服务端错误")
 		return
@@ -213,7 +222,7 @@ func rejudge(c *gin.Context) {
 		NewResult(c).Fail("服务端错误")
 		return
 	}
-	reply, err := util.Judge(config.AddressList, submission.Code, inputList, expectList, submission.Lang, uint64(timeLimit), uint64(memoryLimit), judgeType == 1, specialCode)
+	reply, err := util.Judge(strconv.Itoa(submissionID), config.AddressList, submission.Code, inputList, expectList, submission.Lang, uint64(timeLimit), uint64(memoryLimit), judgeType == 1, specialCode)
 	if err != nil {
 		NewResult(c).Fail("服务端错误")
 		return

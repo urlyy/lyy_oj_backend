@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	PROBLEM_PAGE_SIZE = 15
+	PROBLEM_PAGE_SIZE = 20
 )
 
 func getProblems(c *gin.Context) {

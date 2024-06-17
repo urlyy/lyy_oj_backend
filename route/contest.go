@@ -89,7 +89,7 @@ func getContests(c *gin.Context) {
 		SELECT *
 		FROM contest 
 		WHERE domain_id=$1 AND is_deleted = false %s
-		ORDER BY id DESC
+		ORDER BY start_time DESC
 		LIMIT $2 OFFSET $3`, extraWhere)
 	util.GetDB().Select(&contests, sql, domainID, CONTEST_PAGE_SIZE, (curPage-1)*CONTEST_PAGE_SIZE)
 	ret_contests := make([]map[string]interface{}, len(contests))
